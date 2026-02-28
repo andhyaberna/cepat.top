@@ -1,16 +1,3 @@
-/**
- * SPOTMEMBER MASTER BACKEND v12.1 (SaaS White-Label Edition) - 2026
- * Hardened Edition (Crash-proof + Settings Cache + Safer Parsing)
- * - Fix: doPost null-safety (e.postData)
- * - Fix: Settings cache per request (lebih cepat & stabil)
- * - Fix: Sheet guard (biar gak crash kalau sheet hilang)
- * - Fix: Harga sanitizer (anti "10.000" jadi NaN)
- * - Fix: Webhook in-memory status update (anti double-match)
- * - Improve: Cloudflare error message lebih informatif
- * - New: get_pages action for dashboard HTML download
- * - New: Non-Aktifkan action (Lunas -> Pending status switch)
- */
-
 const ss = SpreadsheetApp.getActiveSpreadsheet();
 
 /* =========================
@@ -1319,9 +1306,14 @@ function saveAffiliatePixel(d) {
    PERMISSION WARMUP
 ========================= */
 function pancinganIzin() {
-  SpreadsheetApp.getActiveSpreadsheet().getName();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) ss.getName();
   MailApp.getRemainingDailyQuota();
-  UrlFetchApp.fetch("https://google.com");
+  try {
+    UrlFetchApp.fetch("https://google.com");
+  } catch (e) {
+    // Ignore fetch errors
+  }
   Logger.log("Pancingan sukses! Izin berhasil di-refresh.");
 }
 

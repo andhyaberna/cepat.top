@@ -1,1 +1,1 @@
-window.SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxPmpS_t9M34sldNZi4gj7xMat_GOI5IrwKNCZyAv9dhRtc8oRhFTvnFoVWYB-uosfP/exec";
+window.SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyIHM4c1QozOB2azyF4bARnz6ZOmG29IetSJcvnQbzLYTNHqNvOZYEUXX1QCep_NnsJ/exec";
