@@ -15,8 +15,34 @@
                     link.href = data.site_favicon;
                 }
                 
+                // Helper Meta Tags
+                const setMeta = (attrName, attrValue, content) => {
+                    if(!content) return;
+                    let element = document.querySelector(`meta[${attrName}="${attrValue}"]`);
+                    if (!element) {
+                        element = document.createElement('meta');
+                        element.setAttribute(attrName, attrValue);
+                        document.head.appendChild(element);
+                    }
+                    element.setAttribute('content', content);
+                };
+
                 if(data.site_name) {
                     document.title = document.title.replace(/Cepat Digital/gi, data.site_name).replace(/Cepat/gi, data.site_name);
+                    setMeta('property', 'og:title', data.site_name);
+                    setMeta('name', 'title', data.site_name);
+                }
+
+                // Tagline -> Meta Description
+                if(data.site_tagline) {
+                    setMeta('property', 'og:description', data.site_tagline);
+                    setMeta('name', 'description', data.site_tagline);
+                }
+
+                // Logo URL -> Meta Image
+                if(data.site_logo) {
+                    setMeta('property', 'og:image', data.site_logo);
+                    setMeta('name', 'image', data.site_logo);
                 }
 
                 const updateDom = () => {
