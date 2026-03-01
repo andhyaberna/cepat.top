@@ -576,12 +576,14 @@
         // Dynamic Greeting & Avatar Logic
         // Fallback name logic: Nama -> Email -> 'Member'
         let displayName = userNama;
-        if (!displayName || displayName === 'null' || displayName.trim() === '') {
+        // Robust check for invalid values (null, undefined, empty, or just spaces)
+        if (!displayName || displayName === 'null' || displayName === 'undefined' || displayName.trim() === '') {
             displayName = userEmail ? userEmail.split('@')[0] : 'Member';
         }
 
         if (displayName) { 
-            const firstName = displayName.split(' ')[0];
+            // Ensure no leading/trailing spaces
+            displayName = displayName.trim();
             
             // Time-based Greeting
             const hour = new Date().getHours();
@@ -595,7 +597,8 @@
             if (headerNameEl) {
                 // Find parent p tag to update full text
                 const parentP = headerNameEl.parentElement;
-                parentP.innerHTML = `${greeting}, <span id="header-name" class="text-indigo-600 font-bold capitalize">${firstName}</span>!`;
+                // Use full displayName as requested (Nama Lengkap)
+                parentP.innerHTML = `${greeting}, <span id="header-name" class="text-indigo-600 font-bold capitalize">${displayName}</span>!`;
             }
 
             // Update Dynamic Avatar
