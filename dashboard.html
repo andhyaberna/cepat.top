@@ -574,8 +574,14 @@
         if (!userEmail) { window.location.href = 'login.html'; }
         
         // Dynamic Greeting & Avatar Logic
-        if (userNama) { 
-            const firstName = userNama.split(' ')[0];
+        // Fallback name logic: Nama -> Email -> 'Member'
+        let displayName = userNama;
+        if (!displayName || displayName === 'null' || displayName.trim() === '') {
+            displayName = userEmail ? userEmail.split('@')[0] : 'Member';
+        }
+
+        if (displayName) { 
+            const firstName = displayName.split(' ')[0];
             
             // Time-based Greeting
             const hour = new Date().getHours();
@@ -589,14 +595,15 @@
             if (headerNameEl) {
                 // Find parent p tag to update full text
                 const parentP = headerNameEl.parentElement;
-                parentP.innerHTML = `${greeting}, <span id="header-name" class="text-indigo-600 font-bold">${firstName}</span>!`;
+                parentP.innerHTML = `${greeting}, <span id="header-name" class="text-indigo-600 font-bold capitalize">${firstName}</span>!`;
             }
 
             // Update Dynamic Avatar
             const avatarImg = document.getElementById('header-avatar');
             const avatarIcon = document.getElementById('header-avatar-icon');
             if(avatarImg && avatarIcon) {
-                avatarImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userNama)}&background=4f46e5&color=fff&size=128&bold=true`;
+                // Use displayName instead of raw userNama to ensure fallback works
+                avatarImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=4f46e5&color=fff&size=128&bold=true`;
                 avatarImg.onload = function() {
                     avatarImg.classList.remove('hidden');
                     avatarIcon.classList.add('hidden');
