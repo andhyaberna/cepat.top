@@ -1515,26 +1515,35 @@ function handleMootaWebhook(mutations, cfg) {
     const orders = s.getDataRange().getValues();
     const siteName = getCfgFrom_(cfg, "site_name") || "Sistem Premium";
 
-    // OPTIONAL: batasi hanya order pending max 48 jam terakhir (anti aktivasi order lama)
     const MAX_AGE_HOURS = 48;
+    const matched = [];
+    const debugLog = [];
+
+    debugLog.push("MUTATIONS: " + mutations.length);
+    debugLog.push("ORDERS: " + (orders.length - 1));
 
     for (let m = 0; m < mutations.length; m++) {
       const mutasi = mutations[m];
       const type = String(mutasi.type || "").toLowerCase();
 
-      // HANYA PROSES UANG MASUK (CR = Credit)
-      if (type !== "cr" && type !== "credit") continue;
+      if (type !== "cr" && type !== "credit") {
+        debugLog.push("SKIP mutasi[" + m + "] type=" + type + " (bukan CR)");
+        continue;
+      }
 
-      // Gunakan parsing float agar support desimal (misal 50000.00)
       const nominalTransfer = parseFloat(String(mutasi.amount || 0).replace(/[^0-9.-]/g, "")) || 0;
-      if (nominalTransfer <= 0) continue;
+      if (nominalTransfer <= 0) {
+        debugLog.push("SKIP mutasi[" + m + "] amount=0");
+        continue;
+      }
 
-      // Cari order Pending yang nominalnya SAMA PERSIS
+      debugLog.push("CARI MATCH nominal=" + nominalTransfer);
+
+      let foundMatch = false;
       for (let i = 1; i < orders.length; i++) {
         const statusOrder = String(orders[i][7] || "").trim();
         if (statusOrder !== "Pending") continue;
 
-        // filter umur order (best-effort)
         if (MAX_AGE_HOURS > 0) {
           const dtStr = String(orders[i][8] || "").trim();
           const dt = new Date(dtStr);
@@ -1545,8 +1554,10 @@ function handleMootaWebhook(mutations, cfg) {
         }
 
         const tagihanOrder = toNumberSafe_(orders[i][6]);
-        if (tagihanOrder === nominalTransfer) {
-          // MATCH KETEMU! UBAH JADI LUNAS + update in-memory biar gak match lagi
+        debugLog.push("  ROW " + (i+1) + ": tagihan=" + tagihanOrder + " vs transfer=" + nominalTransfer + " match=" + (tagihanOrder == nominalTransfer));
+
+        // Gunakan == (loose) bukan === (strict) untuk handle float vs int
+        if (tagihanOrder == nominalTransfer) {
           s.getRange(i + 1, 8).setValue("Lunas");
           orders[i][7] = "Lunas";
 
@@ -1595,12 +1606,18 @@ function handleMootaWebhook(mutations, cfg) {
             cfg
           );
 
+          foundMatch = true;
+          matched.push(inv);
           break; // stop cari order lain untuk mutasi ini
         }
       }
+      if (!foundMatch) debugLog.push("NO MATCH untuk nominal " + nominalTransfer);
     }
 
-    return ContentService.createTextOutput("OK").setMimeType(ContentService.MimeType.TEXT);
+    const result = matched.length > 0
+      ? "OK_MATCHED:" + matched.join(",") + " | " + debugLog.join(" | ")
+      : "OK_NO_MATCH | " + debugLog.join(" | ");
+    return ContentService.createTextOutput(result).setMimeType(ContentService.MimeType.TEXT);
   } catch (e) {
     return ContentService.createTextOutput("ERROR: " + e.toString())
       .setMimeType(ContentService.MimeType.TEXT);
