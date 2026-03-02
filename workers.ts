@@ -6,31 +6,33 @@ export default {
 
     try {
       const requestBody = await request.text();
-
-      // Forward Moota headers yang penting
       const signature = request.headers.get('Signature') || "";
 
       const url = new URL(GAS_URL);
       if (signature) url.searchParams.append('moota_signature', signature);
 
-      // ============================================================
-      // PENTING: Google Apps Script SELALU redirect 302.
-      // Jika pakai redirect:'follow' (default), fetch mengubah POST→GET
-      // dan body hilang. Solusi: redirect:'manual', ikuti sendiri.
-      // ============================================================
-      let response = await fetch(url.toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: requestBody,
-        redirect: 'manual'
-      });
-
-      // Ikuti redirect chain (GAS biasanya redirect 1-3x)
+      // Google Apps Script SELALU redirect 302.
+      // Kita harus ikuti redirect MANUAL sambil tetap kirim POST + body,
+      // karena redirect default (follow) mengubah POST → GET dan body hilang.
+      let targetUrl = url.toString();
+      let response = new Response("No response", { status: 502 });
       let redirects = 0;
-      while (response.status >= 300 && response.status < 400 && redirects < 5) {
+
+      while (redirects < 5) {
+        response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: requestBody,
+          redirect: 'manual'
+        });
+
+        // Jika bukan redirect, stop
+        if (response.status < 300 || response.status >= 400) break;
+
+        // Ambil URL redirect berikutnya
         const location = response.headers.get('Location');
         if (!location) break;
-        response = await fetch(location, { redirect: 'manual' });
+        targetUrl = location;
         redirects++;
       }
 
