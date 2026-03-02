@@ -1,5 +1,5 @@
 export default {
-  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+  async fetch(request, env, ctx) {
     if (request.method !== 'POST') return new Response('Hanya menerima POST', { status: 405 });
 
     const GAS_URL = "https://script.google.com/macros/s/AKfycbwNI_QGAfkN5jRydn_o8uU7-ARlr2_6POwg2CIRWy4qbSjYzOgnk9RNvE6Ew-II9II/exec?token=FKtBRIlu";
@@ -40,10 +40,10 @@ export default {
         headers: { 'Content-Type': 'text/plain' }
       });
 
-    } catch (error: any) {
+    } catch (error) {
       return new Response(JSON.stringify({
         error: true,
-        message: "CF Worker Error: " + error.message
+        message: "CF Worker Error: " + String(error)
       }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
