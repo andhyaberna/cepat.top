@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Orderan - Admin Area</title>
+    <!-- Config -->
+    <script src="config.js"></script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- SweetAlert2 -->
@@ -243,7 +245,7 @@
 
     <script>
         // CONFIGURATION
-        const API_URL = "https://script.google.com/macros/s/AKfycbxJV9gJPLZn46o53RI47AG-L3jpPNUO4Onn6zwfMXHQAMNS8XqrhVNCdTYVw9WONoO7/exec";
+        const API_URL = typeof SCRIPT_URL !== 'undefined' ? SCRIPT_URL : "https://script.google.com/macros/s/AKfycbzbZ2uVuN1kr93pP-f8k5sTBK6ZlV8LbIx2HuYI4ufKqz7d9NL6HcnNqyFk7Gs6TANp/exec";
         let currentPage = 1;
         let currentData = [];
         let isEditing = false;
@@ -290,7 +292,7 @@
                 if (json.status === 'success') {
                     currentData = json.data;
                     renderTable(json.data);
-                    updatePagination(page, json.has_more);
+                    updatePagination(page, json.has_more, json.data.length);
                     currentPage = page;
                 } else {
                     Swal.fire('Error', json.message, 'error');
@@ -353,7 +355,17 @@
         }
 
         // PAGINATION
-        function updatePagination(page, hasMore) {
+        function updatePagination(page, hasMore, count = 0) {
+            // Update Text X sampai Y
+            const limit = 20;
+            const start = count > 0 ? (page - 1) * limit + 1 : 0;
+            const end = count > 0 ? (page - 1) * limit + count : 0;
+            
+            const pStart = document.getElementById('pageStart');
+            const pEnd = document.getElementById('pageEnd');
+            if(pStart) pStart.innerText = start;
+            if(pEnd) pEnd.innerText = end;
+
             document.getElementById('pageInfo').innerText = `Halaman ${page}`;
             document.getElementById('prevBtn').disabled = page === 1;
             document.getElementById('nextBtn').disabled = !hasMore;
