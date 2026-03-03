@@ -1,6 +1,28 @@
 const ss = SpreadsheetApp.getActiveSpreadsheet();
 
 /* =========================
+   CONFIG.JS INTEGRATION
+   (Server-side Configuration)
+========================= */
+const SCRIPT_CONFIG = {
+  // SCRIPT_URL: URL Web App yang sudah dideploy
+  SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzbZ2uVuN1kr93pP-f8k5sTBK6ZlV8LbIx2HuYI4ufKqz7d9NL6HcnNqyFk7Gs6TANp/exec",
+  
+  // Environment (production/development)
+  ENV: "production"
+};
+
+function getScriptConfig(key) {
+  return SCRIPT_CONFIG[key] || "";
+}
+
+function testConfiguration() {
+  const url = getScriptConfig("SCRIPT_URL");
+  Logger.log("Testing Configuration Access: " + url);
+  return { status: "success", script_url: url };
+}
+
+/* =========================
    UTIL / HARDENING HELPERS
 ========================= */
 function jsonRes(data) {

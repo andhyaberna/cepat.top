@@ -42,10 +42,22 @@
 <body class="bg-gray-50 text-gray-800 font-sans">
     <script>
         (function(){
+            // 0. Redirect jika diakses langsung (bukan dari iframe/admin-area)
+            if (window.self === window.top) {
+                window.location.replace("admin-area.html");
+                return;
+            }
+
+            // 1. Cek Login Admin Area (Prioritas)
+            if(sessionStorage.getItem('adm_v10')) {
+                return; // Akses diterima sebagai Admin Area
+            }
+
+            // 2. Cek Login Member Area
             const em = sessionStorage.getItem('user_email');
             if(!em) { window.location.replace('login.html'); return; }
             
-            // Check Admin Role from LocalStorage (synced from Dashboard)
+            // 3. Validasi Role Admin dari Data Dashboard
             const c = localStorage.getItem('cepat_dashboard_data_' + em);
             let isAdmin = false;
             if(c) {
@@ -68,7 +80,7 @@
     </div>
 
     <!-- Header -->
-    <header class="bg-white shadow-sm sticky top-0 z-10">
+    <header class="bg-white shadow-sm sticky top-0 z-10" id="main-header">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <h1 class="text-xl font-bold text-indigo-600 flex items-center gap-2">
                 <i class="fa-solid fa-cart-shopping"></i> Data Orderan
@@ -80,6 +92,15 @@
             </div>
         </div>
     </header>
+
+    <script>
+        // Hide header if inside iframe (integrated mode)
+        if (window.self !== window.top) {
+            document.getElementById('main-header').style.display = 'none';
+            document.body.classList.remove('bg-gray-50');
+            document.body.classList.add('bg-white');
+        }
+    </script>
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

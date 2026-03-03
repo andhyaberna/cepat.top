@@ -215,9 +215,9 @@
                 <button onclick="switchTab('orders')" id="nav-orders" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i> Dashboard
                 </button>
-                <a href="admin-orders.html" target="_blank" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-left">
+                <button onclick="switchTab('admin-orders')" id="nav-admin-orders" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-left">
                     <i data-lucide="clipboard-list" class="w-5 h-5"></i> Admin Orders
-                </a>
+                </button>
                 <button onclick="switchTab('members')" id="nav-members" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm">
                     <i data-lucide="users" class="w-5 h-5"></i> Data Member
                 </button>
@@ -321,6 +321,11 @@
                             </button>
                         </div>
                     </div>
+                </div>
+
+                <!-- ADMIN ORDERS TAB (IFRAME) -->
+                <div id="tab-admin-orders" class="tab-content h-[85vh]">
+                    <iframe id="iframe-admin-orders" data-src="admin-orders.html" class="w-full h-full rounded-2xl border border-slate-200 shadow-sm bg-white" frameborder="0"></iframe>
                 </div>
 
                 <!-- MEMBERS TAB -->
@@ -1303,10 +1308,19 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); 
             document.getElementById('tab-'+t).classList.add('active'); 
             document.getElementById('nav-'+t).classList.add('active'); 
-            const titles = { 'orders': 'Dashboard', 'members': 'Data Member', 'products': 'Produk & Layanan', 'pages': 'Halaman CMS', 'media': 'Media Center', 'settings': 'Pengaturan Sistem' };
+            const titles = { 'orders': 'Dashboard', 'admin-orders': 'Manajemen Pesanan', 'members': 'Data Member', 'products': 'Produk & Layanan', 'pages': 'Halaman CMS', 'media': 'Media Center', 'settings': 'Pengaturan Sistem' };
             document.getElementById('tab-title').innerText = titles[t] || 'Dashboard';
             lucide.createIcons();
             if(t === 'media') loadMediaFiles(); // Auto load media
+            
+            // Lazy load Admin Orders
+            if (t === 'admin-orders') {
+                const iframe = document.getElementById('iframe-admin-orders');
+                if (iframe && !iframe.getAttribute('src')) {
+                    iframe.src = iframe.getAttribute('data-src');
+                }
+            }
+
             if(window.innerWidth < 768) toggleSidebar(); 
         }
 
