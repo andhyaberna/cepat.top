@@ -40,6 +40,27 @@
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
+    <script>
+        (function(){
+            const em = sessionStorage.getItem('user_email');
+            if(!em) { window.location.replace('login.html'); return; }
+            
+            // Check Admin Role from LocalStorage (synced from Dashboard)
+            const c = localStorage.getItem('cepat_dashboard_data_' + em);
+            let isAdmin = false;
+            if(c) {
+                try {
+                    const d = JSON.parse(c);
+                    if(d.user && d.user.role === 'admin') isAdmin = true;
+                } catch(e) {}
+            }
+            
+            if(!isAdmin) {
+                alert('Akses Ditolak: Hanya Admin yang diizinkan mengakses halaman ini.');
+                window.location.replace('dashboard.html');
+            }
+        })();
+    </script>
 
     <!-- Loading Overlay -->
     <div id="loading" class="loading-overlay">

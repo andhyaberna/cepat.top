@@ -950,6 +950,28 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
 
         function renderDashboardUI(r) {
+            // Admin Orders Menu Injection
+            if (r.user && r.user.role === 'admin') {
+                const navDashboard = document.getElementById('nav-dashboard');
+                if (navDashboard && !document.getElementById('nav-admin-orders')) {
+                    const adminBtn = document.createElement('a');
+                    adminBtn.id = 'nav-admin-orders';
+                    adminBtn.href = 'admin-orders.html';
+                    // Open in new tab/window as it is a separate tool
+                    adminBtn.target = '_blank'; 
+                    // Match existing nav-item styling
+                    adminBtn.className = 'nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-left transition-all cursor-pointer';
+                    // Use styling similar to others but handle active state manually if needed
+                    adminBtn.innerHTML = '<i data-lucide="clipboard-list" class="w-5 h-5"></i> Admin Orders';
+                    
+                    // Insert after dashboard button
+                    navDashboard.parentNode.insertBefore(adminBtn, navDashboard.nextSibling);
+                    
+                    // Initialize icon
+                    setTimeout(() => lucide.createIcons(), 50);
+                }
+            }
+
             if (r.pages) window.cachedPages = r.pages;
             if (r.affiliate_pixels) window.currentAffiliatePixels = r.affiliate_pixels;
             
