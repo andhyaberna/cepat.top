@@ -245,11 +245,8 @@
 
     <script>
         // CONFIGURATION — Loaded from encrypted config.js
-        if (typeof SCRIPT_URL === 'undefined') {
-            console.error('[Security] config.js gagal dimuat. SCRIPT_URL tidak tersedia.');
-            document.body.innerHTML = '<div style="text-align:center;padding:50px;color:#ef4444;"><h2>⚠️ Konfigurasi Error</h2><p>Gagal memuat konfigurasi sistem. Silakan refresh halaman.</p></div>';
-        }
-        const API_URL = typeof SCRIPT_URL !== 'undefined' ? SCRIPT_URL : null;
+        const API_URL = (typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : null;
+        if (!API_URL) { console.warn('[Config] SCRIPT_URL belum tersedia dari config.js'); }
         let currentPage = 1;
         let currentData = [];
         let isEditing = false;
