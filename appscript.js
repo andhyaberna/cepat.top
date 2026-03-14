@@ -203,6 +203,7 @@ function doPost(e) {
       case "get_wa_logs": return jsonRes(getWALogs_());
       case "test_email": return jsonRes(testEmailDelivery(data));
       case "test_wa": return jsonRes(testWADelivery(data));
+      case "test_lunas_notification": return jsonRes(testLunasNotification(data));
       case "get_system_health": return jsonRes(getSystemHealth());
       case "get_email_quota": return jsonRes(getEmailQuotaStatus());
 
@@ -756,37 +757,51 @@ function updateOrderStatus(d, cfg) {
 
     let orderFound = false, uEmail = "", uName = "", pId = "", pName = "", uWA = "";
     const newStatus = d.status || "Lunas";
+    const isLunas = String(newStatus).trim().toLowerCase() === "lunas";
+
+    // Trace ID for debugging this specific request
+    const traceId = "UOS-" + Date.now();
+    Logger.log(traceId + " updateOrderStatus called with id=" + d.id + " status=" + newStatus + " isLunas=" + isLunas);
 
     for (let i = 1; i < r.length; i++) {
       if (String(r[i][0]) === String(d.id)) {
-        s.getRange(i + 1, 8).setValue(newStatus);
+        s.getRange(i + 1, 8).setValue(isLunas ? "Lunas" : newStatus);
         uEmail = r[i][1];
         uName = r[i][2];
         uWA = r[i][3];
         pId = r[i][4];
         pName = r[i][5];
         orderFound = true;
+        Logger.log(traceId + " Order FOUND: row=" + (i+1) + " uWA=" + JSON.stringify(uWA) + " type=" + typeof uWA + " uEmail=" + uEmail);
         break;
       }
     }
 
     if (orderFound) {
-      if (newStatus !== "Lunas") {
+      if (!isLunas) {
+        Logger.log(traceId + " Not Lunas, returning early. newStatus=" + newStatus);
         return { status: "success", message: "Status berhasil diubah menjadi " + newStatus };
       }
+
+      Logger.log(traceId + " Status=Lunas, proceeding with notifications...");
 
       let accessUrl = "";
       const pData = pS.getDataRange().getValues();
       for (let k = 1; k < pData.length; k++) {
         if (String(pData[k][0]) === String(pId)) { accessUrl = pData[k][3]; break; }
       }
+      Logger.log(traceId + " accessUrl=" + accessUrl);
 
       // LOG: Debug notification target data before sending
       const waDebug = "uWA raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA);
-      logWA_("DEBUG_LUNAS", String(uWA), waDebug + " | Inv=" + d.id + " uEmail=" + uEmail);
+      logWA_("DEBUG_LUNAS", String(uWA), traceId + " | " + waDebug + " | Inv=" + d.id + " uEmail=" + uEmail);
 
+      // STEP 1: Send WA to customer
+      Logger.log(traceId + " Sending WA to: " + uWA);
       const waResult = sendWA(uWA, `🎉 *PEMBAYARAN TERVERIFIKASI!* 🎉\n\nHalo *${uName}*, kabar baik!\n\nPembayaran Anda untuk produk *${pName}* telah kami terima dan akses Anda kini *Telah Aktif*.\n\n🚀 *Klik link berikut untuk mengakses materi Anda:*\n${accessUrl}\n\nAnda juga bisa mengakses seluruh produk Anda melalui Member Area kami.\n\nTerima kasih atas kepercayaannya!\n*Tim ${siteName}*`, cfg);
+      Logger.log(traceId + " WA Result: " + JSON.stringify(waResult));
 
+      // STEP 2: Send Email to customer
       const emailActivationHtml = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #334155; border: 1px solid #e2e8f0; border-radius: 10px;">
           <div style="text-align: center; margin-bottom: 20px;">
@@ -805,9 +820,11 @@ function updateOrderStatus(d, cfg) {
           <p style="font-size: 14px; color: #64748b; margin-bottom: 0;">Salam Sukses,<br><b>Tim ${siteName}</b></p>
       </div>
       `;
+      Logger.log(traceId + " Sending Email to: " + uEmail);
       const emailResult = sendEmail(uEmail, `Akses Terbuka! Produk ${pName} - ${siteName}`, emailActivationHtml, cfg);
+      Logger.log(traceId + " Email Result: " + JSON.stringify(emailResult));
 
-      return { status: "success", notifications: { wa: waResult, email: emailResult } };
+      return { status: "success", trace: traceId, notifications: { wa: waResult, email: emailResult } };
     }
 
     return { status: "error", message: "Order tidak ditemukan" };
@@ -2181,6 +2198,101 @@ function testWADelivery(d) {
     
     var result = sendWA(target, testMessage, cfg);
     return { status: "success", message: "Test WA sent to " + target, result: result };
+  } catch (e) {
+    return { status: "error", message: e.toString() };
+  }
+}
+
+/**
+ * testLunasNotification — Simulates the EXACT Lunas notification flow.
+ * Finds a pending/existing order and sends WA + Email using the same code path 
+ * as updateOrderStatus. Does NOT change the order status.
+ * 
+ * Call: {"action":"test_lunas_notification","invoice":"INV-XXXXX"}
+ * Or:   {"action":"test_lunas_notification"} (auto-finds the latest pending order)
+ */
+function testLunasNotification(d) {
+  try {
+    var cfg = getSettingsMap_();
+    var s = mustSheet_("Orders");
+    var pS = mustSheet_("Access_Rules");
+    var r = s.getDataRange().getValues();
+    var siteName = getCfgFrom_(cfg, "site_name") || "Sistem Premium";
+    var targetInv = String(d.invoice || d.id || "").trim();
+    
+    // Find order (specific or latest pending)
+    var orderRow = null;
+    var orderRowIdx = -1;
+    for (var i = r.length - 1; i >= 1; i--) {
+      if (targetInv) {
+        if (String(r[i][0]) === targetInv) { orderRow = r[i]; orderRowIdx = i; break; }
+      } else {
+        if (String(r[i][7]).trim() === "Pending") { orderRow = r[i]; orderRowIdx = i; break; }
+      }
+    }
+    
+    if (!orderRow) {
+      return { status: "error", message: targetInv ? "Invoice " + targetInv + " tidak ditemukan" : "Tidak ada order Pending. Buat order test dulu." };
+    }
+    
+    var inv = orderRow[0];
+    var uEmail = orderRow[1];
+    var uName = orderRow[2];
+    var uWA = orderRow[3];
+    var pId = orderRow[4];
+    var pName = orderRow[5];
+    
+    // Debug: capture raw data from sheet
+    var debugInfo = {
+      invoice: inv,
+      row_index: orderRowIdx + 1,
+      wa_raw_value: uWA,
+      wa_raw_type: typeof uWA,
+      wa_json: JSON.stringify(uWA),
+      wa_normalized: normalizePhone_(uWA),
+      email: uEmail,
+      name: uName,
+      product: pName,
+      current_status: orderRow[7]
+    };
+    
+    // Get access URL
+    var accessUrl = "";
+    var pData = pS.getDataRange().getValues();
+    for (var k = 1; k < pData.length; k++) {
+      if (String(pData[k][0]) === String(pId)) { accessUrl = pData[k][3]; break; }
+    }
+    debugInfo.access_url = accessUrl;
+    
+    // SEND WA (same message as real Lunas flow)
+    logWA_("TEST_LUNAS", String(uWA), "Testing Lunas notification for " + inv + " | WA raw=" + JSON.stringify(uWA) + " type=" + typeof uWA);
+    var waResult = sendWA(
+      uWA,
+      "🎉 *[TEST] PEMBAYARAN TERVERIFIKASI!* 🎉\n\nHalo *" + uName + "*, ini adalah TEST notifikasi Lunas.\n\nProduk *" + pName + "* (Invoice: #" + inv + ")\n\n🚀 *AKSES MATERI:*\n" + accessUrl + "\n\nIni pesan test. Jika terkirim berarti notifikasi Lunas berfungsi normal.\n*Tim " + siteName + "*",
+      cfg
+    );
+    
+    // SEND EMAIL (same template as real Lunas flow)
+    var emailHtml = '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #e2e8f0;border-radius:8px;">' +
+      '<h2 style="color:#10b981;">[TEST] Akses Terbuka! 🎉</h2>' +
+      '<p>Halo <b>' + uName + '</b>,</p>' +
+      '<p>Ini adalah TEST notifikasi Lunas untuk produk <b>' + pName + '</b>.</p>' +
+      '<div style="text-align:center;margin:30px 0;">' +
+      '<a href="' + accessUrl + '" style="background-color:#4f46e5;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;">Akses Materi</a>' +
+      '</div>' +
+      '<p>Jika Anda menerima email ini, notifikasi Lunas berfungsi normal.</p>' +
+      '<p>Tim <b>' + siteName + '</b></p></div>';
+    var emailResult = sendEmail(uEmail, "[TEST] Akses Terbuka - " + siteName, emailHtml, cfg);
+    
+    return {
+      status: "success",
+      message: "Test Lunas notification sent for " + inv,
+      debug: debugInfo,
+      results: {
+        wa: waResult,
+        email: emailResult
+      }
+    };
   } catch (e) {
     return { status: "error", message: e.toString() };
   }
