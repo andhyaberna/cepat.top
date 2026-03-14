@@ -1,0 +1,9 @@
+_worker.js
+wrangler.jsonc
+.git
+.gitignore
+node_modules
+appscript.js
+load_test.js
+AUDIT_REPORT.md
+SECURITY.md
