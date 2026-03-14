@@ -1,12 +1,12 @@
 # ============================================
 # Cloudflare Pages Redirect/Rewrite Rules
-# Block direct access to sensitive files by
-# redirecting them to 404
+# Block direct access to sensitive files
+# Note: 404 is NOT a valid status for _redirects
+# Using 302 redirect to 404.html instead
 # ============================================
 
-# Block server-side scripts and config files from public access
-/appscript.js    /404.html    404
-/load_test.js    /404.html    404
-/workers.ts      /404.html    404
-/AUDIT_REPORT.md /404.html    404
-/SOP_DATA_CONSISTENCY.md /404.html 404
+/appscript.js    /404.html    302
+/load_test.js    /404.html    302
+/workers.ts      /404.html    302
+/AUDIT_REPORT.md /404.html    302
+/SOP_DATA_CONSISTENCY.md /404.html 302
