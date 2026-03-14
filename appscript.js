@@ -97,39 +97,7 @@ function getCfg(name) {
   return "";
 }
 
-/* =========================
-   QUOTA MONITORING
-========================= */
-function checkQuota() {
-  const emailQuota = MailApp.getRemainingDailyQuota();
-  const user = Session.getEffectiveUser().getEmail();
-  
-  // Estimate URL Fetch usage (cannot be exact, but we can check if it works)
-  let urlFetchStatus = "OK";
-  try {
-    UrlFetchApp.fetch("https://www.google.com");
-  } catch(e) {
-    urlFetchStatus = "EXCEEDED/ERROR";
-  }
-  
-  const report = {
-    user: user,
-    email_quota: emailQuota,
-    url_fetch_status: urlFetchStatus,
-    timestamp: new Date().toISOString()
-  };
-  
-  // Alert if critical
-  if (emailQuota < 20) {
-    // Cannot send email if quota low, log to spreadsheet instead
-    const logSheet = ss.getSheetByName("System_Logs");
-    if (logSheet) {
-      logSheet.appendRow([new Date(), "CRITICAL_QUOTA", JSON.stringify(report)]);
-    }
-  }
-  
-  return report;
-}
+
 
 /* =========================
    WEBHOOK ENTRYPOINT
@@ -233,8 +201,6 @@ function doPost(e) {
       case "get_admin_users": return jsonRes(getAdminUsers(data));
       case "save_bio_link": return jsonRes(saveBioLink(data));
       case "get_bio_link": return jsonRes(getBioLink(data));
-      case "get_quota_status": return jsonRes({ status: "success", data: checkQuota() });
-      case "check_system_health": return jsonRes(checkSystemHealth());
       default: return jsonRes({ status: "error", message: "Aksi tidak terdaftar: " + (action || "unknown") });
     }
   } catch (err) {
@@ -242,130 +208,7 @@ function doPost(e) {
   }
 }
 
-/* =========================
-   SYSTEM HEALTH & CONSISTENCY CHECK
-========================= */
-function checkSystemHealth() {
-  try {
-    const report = {
-      status: "healthy",
-      issues: [],
-      checks: {}
-    };
 
-    // 1. Check Product Cache Consistency
-    const rawRules = mustSheet_("Access_Rules").getDataRange().getValues();
-    const cachedRulesJson = CacheService.getScriptCache().get("access_rules");
-    
-    let cacheStatus = "ok";
-    if (cachedRulesJson) {
-      const cachedRules = JSON.parse(cachedRulesJson);
-      // Compare lengths (rawRules has header, so length-1)
-      if (cachedRules.length !== rawRules.length) {
-        cacheStatus = "mismatch";
-        report.status = "warning";
-        report.issues.push("Product Cache Mismatch: Cache (" + cachedRules.length + ") vs Sheet (" + rawRules.length + ")");
-      } else {
-        // Deep compare last item to ensure freshness
-        const lastRaw = rawRules[rawRules.length-1].join("|");
-        const lastCached = cachedRules[cachedRules.length-1].join("|");
-        if (lastRaw !== lastCached) {
-           cacheStatus = "stale";
-           report.status = "warning";
-           report.issues.push("Product Cache Stale: Data content differs.");
-        }
-      }
-    } else {
-      cacheStatus = "empty (clean)";
-    }
-    report.checks.product_cache = cacheStatus;
-
-    // 2. Check Active Products Count
-    let activeCount = 0;
-    for (let i = 1; i < rawRules.length; i++) {
-      if (String(rawRules[i][5]).trim() === "Active") activeCount++;
-    }
-    report.checks.active_products = activeCount;
-
-    // 3. Quota Check
-    const quota = checkQuota();
-    if (quota.email_quota < 10) {
-      report.status = "critical";
-      report.issues.push("Email Quota Critical: " + quota.email_quota);
-    }
-
-    // 4. Run Data Consistency Tests
-    const testResults = runDataConsistencyTests();
-    if (testResults.status === "error") {
-      report.status = report.status === "critical" ? "critical" : "warning";
-      report.issues.push(...testResults.errors);
-    }
-    report.checks.data_consistency = testResults.status;
-
-    return { status: "success", data: report };
-  } catch (e) {
-    return { status: "error", message: e.toString() };
-  }
-}
-
-/**
- * UNIT TESTS: Data Consistency Between Admin and Dashboard
- * Ensures both views see the same core data (minus filters).
- */
-function runDataConsistencyTests() {
-  const errors = [];
-  try {
-    const cfg = getSettingsMap_();
-    
-    // Test 1: getAdminData vs Raw Sheet
-    const adminRes = getAdminData(cfg);
-    const rawRules = mustSheet_("Access_Rules").getDataRange().getValues();
-    const sheetCount = rawRules.length - 1; // exclude header
-    
-    if (adminRes.status === "success") {
-      if (adminRes.products.length !== sheetCount) {
-        errors.push(`Mismatch Admin vs Sheet: Admin sees ${adminRes.products.length} products, Sheet has ${sheetCount}.`);
-      }
-    } else {
-      errors.push("Failed to call getAdminData for testing.");
-    }
-
-    // Test 2: getProducts (Active only) vs Filtered Raw Sheet
-    const dashboardRes = getProducts({ action: "get_products" }, cfg);
-    let activeSheetCount = 0;
-    for (let i = 1; i < rawRules.length; i++) {
-      if (String(rawRules[i][5]).trim() === "Active") activeSheetCount++;
-    }
-
-    if (dashboardRes.status === "success") {
-      if (dashboardRes.data.length !== activeSheetCount) {
-        errors.push(`Mismatch Dashboard vs Sheet: Dashboard sees ${dashboardRes.data.length} active products, Sheet has ${activeSheetCount}.`);
-      }
-    } else {
-      errors.push("Failed to call getProducts for testing.");
-    }
-
-    // Test 3: Data Integrity (Check required columns)
-    if (adminRes.status === "success" && adminRes.products.length > 0) {
-       const firstProd = adminRes.products[0];
-       // Check if required indices exist (based on renderAdminUI mapping)
-       // ID [0], Title [1], Desc [2], Price [4], Status [5]
-       const requiredIndices = [0, 1, 2, 4, 5];
-       requiredIndices.forEach(idx => {
-         if (firstProd[idx] === undefined) {
-           errors.push(`Data Integrity Error: Column index ${idx} missing in product data.`);
-         }
-       });
-    }
-
-    return {
-      status: errors.length > 0 ? "error" : "success",
-      errors: errors
-    };
-  } catch (e) {
-    return { status: "error", errors: ["Test Runner Error: " + e.toString()] };
-  }
-}
 
 /* =========================
    WHITE-LABEL GLOBAL SETTINGS
