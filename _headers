@@ -22,9 +22,6 @@
 /load_test.js
   X-Robots-Tag: noindex, nofollow
 
-/workers.ts
-  X-Robots-Tag: noindex, nofollow
-
 /AUDIT_REPORT.md
   X-Robots-Tag: noindex, nofollow
 
