@@ -6,12 +6,27 @@ export default {
     const url = new URL(request.url);
 
     // Route: POST /webhook/moota → Google Apps Script
-    if (url.pathname === '/webhook/moota' && request.method === 'POST') {
+    if (url.pathname === '/webhook/moota') {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({ status: 'error', message: 'Method Not Allowed. Use POST.' }),
+          { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'POST' } }
+        );
+      }
       return handleWebhook(request, env.MOOTA_GAS_URL, env.MOOTA_TOKEN);
     }
 
     // Everything else → pass to static assets
-    return env.ASSETS.fetch(request);
+    try {
+      if (env.ASSETS) {
+        return await env.ASSETS.fetch(request);
+      }
+    } catch (e) {
+      // fallback if ASSETS binding fails
+    }
+
+    // Final fallback: fetch the original URL directly
+    return fetch(request);
   }
 };
 
