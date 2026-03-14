@@ -587,11 +587,13 @@ function createOrder(d, cfg) {
     const orderStatus = isZeroPrice ? "Lunas" : "Pending";
 
     // Simpan order (struktur kolom sama dengan script lu)
+    // Store WA number as text (prefix with apostrophe prevents Google Sheets from converting to Number)
+    const waForSheet = waNormalized || waRaw;
     oS.appendRow([
       inv,
       email,
       d.nama,
-      waNormalized || waRaw,
+      "'" + waForSheet,
       d.id_produk,
       d.nama_produk,
       hargaTotalUnik,
@@ -618,9 +620,9 @@ function createOrder(d, cfg) {
          if (String(pData[k][0]) === String(d.id_produk)) { accessUrl = pData[k][3]; break; }
        }
        
-       // 2. WA ke User
+       // 2. WA ke User (use normalized number)
        const waText = `Halo ${d.nama}, selamat datang di ${siteName}! 🎉\n\nSukses! Akses Anda untuk produk *${d.nama_produk}* telah aktif (GRATIS).\n\n🚀 *Klik link berikut untuk akses materi:*\n${accessUrl}\n\n🔐 *AKUN MEMBER AREA*\n🌐 Link: ${loginUrl}\n✉️ Email: ${email}\n🔑 Password: ${pass}\n\nTerima kasih!\n*Tim ${siteName}*`;
-       sendWA(d.whatsapp, waText, cfg);
+       sendWA(waForSheet, waText, cfg);
 
        // 3. Email ke User
        const emailHtml = `
@@ -678,7 +680,7 @@ Silakan selesaikan pembayaran ke rekening berikut:
 *(Akses materi otomatis terbuka di akun ini setelah pembayaran divalidasi)*.
 
 Jika ada pertanyaan, silakan balas pesan ini. Terima kasih! 🙏`;
-    sendWA(d.whatsapp, waBuyerText, cfg);
+    sendWA(waForSheet, waBuyerText, cfg);
 
     // --> NOTIFIKASI PEMBELI (EMAIL) (template asli lu)
     const emailBuyerHtml = `
@@ -778,6 +780,10 @@ function updateOrderStatus(d, cfg) {
       for (let k = 1; k < pData.length; k++) {
         if (String(pData[k][0]) === String(pId)) { accessUrl = pData[k][3]; break; }
       }
+
+      // LOG: Debug notification target data before sending
+      const waDebug = "uWA raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA);
+      logWA_("DEBUG_LUNAS", String(uWA), waDebug + " | Inv=" + d.id + " uEmail=" + uEmail);
 
       const waResult = sendWA(uWA, `🎉 *PEMBAYARAN TERVERIFIKASI!* 🎉\n\nHalo *${uName}*, kabar baik!\n\nPembayaran Anda untuk produk *${pName}* telah kami terima dan akses Anda kini *Telah Aktif*.\n\n🚀 *Klik link berikut untuk mengakses materi Anda:*\n${accessUrl}\n\nAnda juga bisa mengakses seluruh produk Anda melalui Member Area kami.\n\nTerima kasih atas kepercayaannya!\n*Tim ${siteName}*`, cfg);
 
@@ -1705,6 +1711,9 @@ function handleMootaWebhook(mutations, cfg) {
 
           // 3. SEND NOTIFICATIONS
           
+          // LOG: Debug WA target before sending (diagnose Lunas WA failures)
+          logWA_("DEBUG_MOOTA_LUNAS", String(uWA), "raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA) + " | Inv=" + inv);
+
           // A) WA Customer
           sendWA(
             uWA,
