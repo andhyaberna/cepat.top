@@ -1,5 +1,5 @@
 # ============================================
-# Cloudflare Pages Security Headers
+# Cloudflare Security Headers
 # ============================================
 
 # --- GLOBAL SECURITY HEADERS ---
@@ -9,30 +9,19 @@
   X-XSS-Protection: 1; mode=block
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://script.google.com https://api.fonnte.com https://api.imagekit.io https://api.cloudflare.com https://upload.imagekit.io; frame-ancestors 'self'
 
-# --- BLOCK DIRECT ACCESS TO SENSITIVE FILES ---
-
-# Block config.js (encrypted config)
-/config.js
-  X-Robots-Tag: noindex, nofollow
-  Content-Type: text/html
-  ! Access-Control-Allow-Origin
-
-# Block appscript.js (server-side code - should not be public)
+# --- BLOCK SENSITIVE FILES FROM INDEXING ---
 /appscript.js
   X-Robots-Tag: noindex, nofollow
-  Content-Type: text/html
-  ! Access-Control-Allow-Origin
 
-# Block load_test.js
 /load_test.js
   X-Robots-Tag: noindex, nofollow
-  Content-Type: text/html
-  ! Access-Control-Allow-Origin
 
-# Block workers.ts
 /workers.ts
   X-Robots-Tag: noindex, nofollow
-  Content-Type: text/html
-  ! Access-Control-Allow-Origin
+
+/AUDIT_REPORT.md
+  X-Robots-Tag: noindex, nofollow
+
+/SECURITY.md
+  X-Robots-Tag: noindex, nofollow
