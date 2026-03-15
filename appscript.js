@@ -204,6 +204,7 @@ function doPost(e) {
       case "test_email": return jsonRes(testEmailDelivery(data));
       case "test_wa": return jsonRes(testWADelivery(data));
       case "test_lunas_notification": return jsonRes(testLunasNotification(data));
+      case "unit_test_wa_lunas_paid": return jsonRes(unitTestWALunasPaid_());
       case "get_system_health": return jsonRes(getSystemHealth());
       case "get_email_quota": return jsonRes(getEmailQuotaStatus());
 
@@ -374,6 +375,25 @@ function normalizePhone_(raw) {
   // Remove leading 0 if present
   if (num.startsWith("0")) num = num.substring(1); // 08xxx → 8xxx
   return num;
+}
+
+function extractWhatsappFromOrderRow_(row, preferredIndex) {
+  try {
+    if (!row || !Array.isArray(row)) return { value: "", normalized: "", index: -1, strategy: "none" };
+    if (typeof preferredIndex === "number" && preferredIndex >= 0 && preferredIndex < row.length) {
+      const v = row[preferredIndex];
+      const n = normalizePhone_(v);
+      if (n && n.length >= 9) return { value: v, normalized: n, index: preferredIndex, strategy: "preferred" };
+    }
+    for (let i = 0; i < row.length; i++) {
+      const v = row[i];
+      const n = normalizePhone_(v);
+      if (n && n.length >= 9) return { value: v, normalized: n, index: i, strategy: "scan" };
+    }
+    return { value: "", normalized: "", index: -1, strategy: "none" };
+  } catch (e) {
+    return { value: "", normalized: "", index: -1, strategy: "error:" + String(e).substring(0, 80) };
+  }
 }
 
 function sendWA(target, message, cfg) {
@@ -756,6 +776,7 @@ function updateOrderStatus(d, cfg) {
     const siteName = getCfgFrom_(cfg, "site_name") || "Sistem Premium";
 
     let orderFound = false, uEmail = "", uName = "", pId = "", pName = "", uWA = "";
+    let waMeta = { value: "", normalized: "", index: -1, strategy: "none" };
     const newStatus = d.status || "Lunas";
     const isLunas = String(newStatus).trim().toLowerCase() === "lunas";
 
@@ -768,11 +789,12 @@ function updateOrderStatus(d, cfg) {
         s.getRange(i + 1, 8).setValue(isLunas ? "Lunas" : newStatus);
         uEmail = r[i][1];
         uName = r[i][2];
-        uWA = r[i][3];
+        waMeta = extractWhatsappFromOrderRow_(r[i], 3);
+        uWA = waMeta.value;
         pId = r[i][4];
         pName = r[i][5];
         orderFound = true;
-        Logger.log(traceId + " Order FOUND: row=" + (i+1) + " uWA=" + JSON.stringify(uWA) + " type=" + typeof uWA + " uEmail=" + uEmail);
+        Logger.log(traceId + " Order FOUND: row=" + (i+1) + " uWA=" + JSON.stringify(uWA) + " type=" + typeof uWA + " uEmail=" + uEmail + " waMeta=" + JSON.stringify(waMeta));
         break;
       }
     }
@@ -793,7 +815,7 @@ function updateOrderStatus(d, cfg) {
       Logger.log(traceId + " accessUrl=" + accessUrl);
 
       // LOG: Debug notification target data before sending
-      const waDebug = "uWA raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA);
+      const waDebug = "uWA raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA) + " meta=" + JSON.stringify(waMeta);
       logWA_("DEBUG_LUNAS", String(uWA), traceId + " | " + waDebug + " | Inv=" + d.id + " uEmail=" + uEmail);
 
       // STEP 1: Send WA to customer
@@ -1712,7 +1734,8 @@ function handleMootaWebhook(mutations, cfg) {
           const inv = orders[i][0];
           const uEmail = orders[i][1];
           const uName = orders[i][2];
-          const uWA = orders[i][3];
+          const waMeta = extractWhatsappFromOrderRow_(orders[i], 3);
+          const uWA = waMeta.value;
           const pId = orders[i][4];
           const pName = orders[i][5];
 
@@ -1729,7 +1752,7 @@ function handleMootaWebhook(mutations, cfg) {
           // 3. SEND NOTIFICATIONS
           
           // LOG: Debug WA target before sending (diagnose Lunas WA failures)
-          logWA_("DEBUG_MOOTA_LUNAS", String(uWA), "raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA) + " | Inv=" + inv);
+          logWA_("DEBUG_MOOTA_LUNAS", String(uWA), "raw=" + JSON.stringify(uWA) + " type=" + typeof uWA + " normalized=" + normalizePhone_(uWA) + " meta=" + JSON.stringify(waMeta) + " | Inv=" + inv);
 
           // A) WA Customer
           sendWA(
@@ -2203,6 +2226,47 @@ function testWADelivery(d) {
   }
 }
 
+function unitTestWALunasPaid_() {
+  try {
+    const cases = [
+      {
+        name: "default_index_3",
+        row: ["INV-TEST-1", "user@example.com", "User", "'81234567890", "PRD-1", "Produk 1", 123456, "Lunas", "2026-03-15", "-", 0],
+        expectedNormalized: "81234567890",
+        preferredIndex: 3
+      },
+      {
+        name: "shifted_wa_to_index_4",
+        row: ["INV-TEST-2", "user@example.com", "User", "PRD-2", "'081234567890", "Produk 2", 234567, "Lunas", "2026-03-15", "-", 0],
+        expectedNormalized: "81234567890",
+        preferredIndex: 3
+      },
+      {
+        name: "wa_with_plus62_and_spaces",
+        row: ["INV-TEST-3", "user@example.com", "User", "PRD-3", "+62 812-3456-7890", "Produk 3", 345678, "Lunas", "2026-03-15", "-", 0],
+        expectedNormalized: "81234567890",
+        preferredIndex: 3
+      }
+    ];
+
+    const results = cases.map(tc => {
+      const ex = extractWhatsappFromOrderRow_(tc.row, tc.preferredIndex);
+      const ok = ex.normalized === tc.expectedNormalized;
+      return { name: tc.name, ok, extracted: ex, expectedNormalized: tc.expectedNormalized };
+    });
+
+    const failed = results.filter(r => !r.ok);
+    return {
+      status: failed.length ? "error" : "success",
+      passed: results.length - failed.length,
+      failed: failed.length,
+      results
+    };
+  } catch (e) {
+    return { status: "error", message: e.toString() };
+  }
+}
+
 /**
  * testLunasNotification — Simulates the EXACT Lunas notification flow.
  * Finds a pending/existing order and sends WA + Email using the same code path 
@@ -2238,7 +2302,8 @@ function testLunasNotification(d) {
     var inv = orderRow[0];
     var uEmail = orderRow[1];
     var uName = orderRow[2];
-    var uWA = orderRow[3];
+    var waMeta = extractWhatsappFromOrderRow_(orderRow, 3);
+    var uWA = waMeta.value;
     var pId = orderRow[4];
     var pName = orderRow[5];
     
@@ -2250,6 +2315,7 @@ function testLunasNotification(d) {
       wa_raw_type: typeof uWA,
       wa_json: JSON.stringify(uWA),
       wa_normalized: normalizePhone_(uWA),
+      wa_meta: waMeta,
       email: uEmail,
       name: uName,
       product: pName,
