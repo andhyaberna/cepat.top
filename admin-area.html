@@ -2869,7 +2869,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             await submitFormToGAS('form-cf', { action: 'update_settings', payload: p }, 'Kunci Cloudflare Disimpan!');
         };
 
-        window.onload = () => { lucide.createIcons(); if(isAdminSessionActive()) init(); };
+        window.onload = () => { if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons(); if(isAdminSessionActive()) init(); };
     </script>
 </body>
 </html>

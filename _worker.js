@@ -210,6 +210,34 @@ function parseAllowedOrigins(env) {
   return _parsedOrigins;
 }
 
+const LUCIDE_VENDOR_VERSION = '0.577.0';
+const LUCIDE_VENDOR_URL = `https://unpkg.com/lucide@${LUCIDE_VENDOR_VERSION}/dist/umd/lucide.min.js`;
+
+async function serveLucideVendor(request, ctx) {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
+  const cacheKey = new Request(url.toString(), { method: 'GET' });
+  const cached = await caches.default.match(cacheKey);
+  if (cached) {
+    inc('assets_cache_hit');
+    return maybeCompress(request, withStaticCacheHeaders(withMetricHeaders(cached, { 'x-edge-cache': 'HIT' }), pathname));
+  }
+  inc('assets_cache_miss');
+  const upstream = await fetch(LUCIDE_VENDOR_URL, { method: 'GET' });
+  if (!upstream.ok) {
+    return new Response('Vendor asset unavailable', {
+      status: 502,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }
+    });
+  }
+  const headers = new Headers(upstream.headers);
+  headers.set('Content-Type', 'application/javascript; charset=utf-8');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  const out = withStaticCacheHeaders(withMetricHeaders(new Response(upstream.body, { status: 200, headers }), { 'x-edge-cache': 'MISS' }), pathname);
+  if (ctx) ctx.waitUntil(caches.default.put(cacheKey, out.clone()));
+  return maybeCompress(request, out);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const startedAt = Date.now();
@@ -255,6 +283,10 @@ export default {
     const pLower = String(url.pathname || '').toLowerCase();
     if (_blockedPaths.has(url.pathname) || _blockedPaths.has(pLower)) {
       return new Response('Not Found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/assets/vendor/lucide.min.js') {
+      return serveLucideVendor(request, ctx);
     }
 
     if (url.pathname === '/api') {
@@ -829,11 +861,24 @@ function resolveAssetCacheControl(pathname) {
   return 'public, max-age=300, s-maxage=300';
 }
 
+function ensureAssetContentType(headers, pathname) {
+  try {
+    const existing = headers.get('Content-Type');
+    if (existing && String(existing).trim()) return;
+    const p = String(pathname || '').toLowerCase();
+    if (p.endsWith('.js') || p.endsWith('.mjs')) {
+      headers.set('Content-Type', 'application/javascript; charset=utf-8');
+      return;
+    }
+  } catch (e) { }
+}
+
 function withStaticCacheHeaders(response, pathname) {
   try {
     const headers = new Headers(response.headers);
     const cacheControl = resolveAssetCacheControl(pathname);
     if (cacheControl) headers.set('Cache-Control', cacheControl);
+    ensureAssetContentType(headers, pathname);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   } catch (e) {
     return response;
