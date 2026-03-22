@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-03-18T11:48:28.259Z",
+  "outputDir": "installer",
+  "runtimeDependencies": [],
+  "includedFiles": [
+    "404.html",
+    "LICENSE.txt",
+    "README.md",
+    "_headers",
+    "_redirects",
+    "_worker.js",
+    "admin-area.html",
+    "admin-orders.html",
+    "akses.html",
+    "appscript.js",
+    "checkout.html",
+    "config.js",
+    "dashboard.html",
+    "index.html",
+    "login.html",
+    "p.html",
+    "package.json",
+    "setup.js",
+    "site.config.js",
+    "tailwind.css",
+    "validate-config.js",
+    "wrangler.jsonc"
+  ],
+  "excludedCategories": [
+    "development tests",
+    "build tools",
+    "internal docs",
+    "environment files",
+    "raw local-only reference files"
+  ],
+  "notes": [
+    "No standalone binaries or DLL files exist in this project, so none are copied.",
+    "appscript.js is intentionally included because it is a deployable Apps Script runtime artifact."
+  ],
+  "warnings": [],
+  "packageHash": "100ebd667cf2ed446748a2878966b8ec293db65412c309f68a6dd7f9e6abf557"
+}

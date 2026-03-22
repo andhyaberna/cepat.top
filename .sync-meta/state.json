@@ -1,0 +1,140 @@
+{
+  "generated_at": "2026-03-18T20:15:38.489Z",
+  "files": {
+    ".assetsignore": {
+      "hash": "9b7e177a58086d888bbc7f84b9454fcc7c0a775e",
+      "size": 144,
+      "mtimeMs": 1773837253793.6323
+    },
+    "404.html": {
+      "hash": "f243ab6ef56fed928e14e52adcb3ca337b816728",
+      "size": 2478,
+      "mtimeMs": 1773864547106.8823
+    },
+    "AUDIT_CLOUDFLARE_WORKERS.md": {
+      "hash": "b7b63f939d6dd0ef28066ff46fcf13d6d92204b9",
+      "size": 7402,
+      "mtimeMs": 1773864582952.2468
+    },
+    "LICENSE.txt": {
+      "hash": "0418cc80a769a1536630150ac57eb824284d1268",
+      "size": 280,
+      "mtimeMs": 1773834508000
+    },
+    "README.md": {
+      "hash": "9eb7f58ee6e17b98a85a04c9edad9d7e27375591",
+      "size": 11144,
+      "mtimeMs": 1773863142954.1472
+    },
+    "_headers": {
+      "hash": "a5090dd9b3536211792dc0b44ac45174c3b8d46d",
+      "size": 1103,
+      "mtimeMs": 1773848264288.5396
+    },
+    "_redirects": {
+      "hash": "7f9d77daa378ff7e62104871dc931c402c80bd2a",
+      "size": 136,
+      "mtimeMs": 1773799128000
+    },
+    "_worker.js": {
+      "hash": "4734d32a728847ae4e88912c6ae958194114caf4",
+      "size": 39057,
+      "mtimeMs": 1773864500005.5176
+    },
+    "admin-area.html": {
+      "hash": "f26ac4b549f4a019358f600a657513c2c0a95e7d",
+      "size": 170052,
+      "mtimeMs": 1773863142951.0022
+    },
+    "admin-orders.html": {
+      "hash": "107b4f06848a057375329dbc3e29204608ea8667",
+      "size": 30257,
+      "mtimeMs": 1773862145649.6162
+    },
+    "akses.html": {
+      "hash": "b7f409516b803196d7d400fffbdccb0d0b5eb23e",
+      "size": 15183,
+      "mtimeMs": 1773848996036.352
+    },
+    "appscript.js": {
+      "hash": "160319951d1e120c7d8fbd6bac6647978e3ae8c2",
+      "size": 145424,
+      "mtimeMs": 1773864500004.4766
+    },
+    "checkout.html": {
+      "hash": "0eba2216895eca9448ee376483394f3276b1e529",
+      "size": 54638,
+      "mtimeMs": 1773848675613.9937
+    },
+    "config.js": {
+      "hash": "9235c1650f4c1e8b1ee6090dc93559a97208aab6",
+      "size": 24833,
+      "mtimeMs": 1773864500005.5176
+    },
+    "dashboard.html": {
+      "hash": "a59358a4fa7f0c8d9385afaae0873d289e6601f5",
+      "size": 111886,
+      "mtimeMs": 1773864500002.2007
+    },
+    "index.html": {
+      "hash": "89d6cdbdca58626c790c00f3e4fc6c82b18038ee",
+      "size": 23478,
+      "mtimeMs": 1773864910015.9202
+    },
+    "login.html": {
+      "hash": "e682f928890692c8255e19fcd077a3c05c66c6dd",
+      "size": 17607,
+      "mtimeMs": 1773848968945.7737
+    },
+    "manifest.json": {
+      "hash": "3799e265265d8c89ea0f732f7a6f02f3fa6b38db",
+      "size": 1023,
+      "mtimeMs": 1773864500007.1284
+    },
+    "p.html": {
+      "hash": "61ca869d95f527cef21d1cac7fd37dae2b987590",
+      "size": 12055,
+      "mtimeMs": 1773848652680.0234
+    },
+    "package.json": {
+      "hash": "ae9aa61696726f024ba41321e220fda1fa99fc0f",
+      "size": 687,
+      "mtimeMs": 1773849180498.4158
+    },
+    "scripts/sync-installer.js": {
+      "hash": "5c017b236ead2b4001e6fa653129e00a609a666f",
+      "size": 10204,
+      "mtimeMs": 1773844769363.2805
+    },
+    "setup.js": {
+      "hash": "f4ad866529f2a3a1d5e0cabdbd586a99fd5b2ba7",
+      "size": 9917,
+      "mtimeMs": 1773745014000
+    },
+    "site.config.js": {
+      "hash": "f2236e63fe85047d87e7578739eb94e09786a726",
+      "size": 1366,
+      "mtimeMs": 1773836107171.3599
+    },
+    "tailwind.css": {
+      "hash": "a061e6137cc26fb4ed458c61deb244a7423da610",
+      "size": 75622,
+      "mtimeMs": 1773795446000
+    },
+    "validate-config.js": {
+      "hash": "43d7cedab025a449912c1c557e268341023afc07",
+      "size": 6829,
+      "mtimeMs": 1773745232000
+    },
+    "worker-budget-audit.js": {
+      "hash": "dffba76d5ff5886bcf888467f0b1046ca4f7f52f",
+      "size": 5574,
+      "mtimeMs": 1773864500007.1284
+    },
+    "wrangler.jsonc": {
+      "hash": "2000604da7b0aaf0d2529d364966afa5c4c4ee21",
+      "size": 742,
+      "mtimeMs": 1773860178952.9348
+    }
+  }
+}

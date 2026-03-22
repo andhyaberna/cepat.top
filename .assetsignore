@@ -1,0 +1,12 @@
+_worker.js
+_headers
+_redirects
+appscript.js
+setup.js
+validate-config.js
+wrangler.jsonc
+package.json
+README.md
+LICENSE.txt
+manifest.json
+**/.git

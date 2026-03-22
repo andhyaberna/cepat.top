@@ -1,0 +1,17 @@
+{
+  "name": "cepaticu3-installer",
+  "private": true,
+  "description": "Distribution-ready installer package for CepatIcu3",
+  "scripts": {
+    "setup": "node setup.js",
+    "validate": "node validate-config.js",
+    "audit:worker": "node worker-budget-audit.js",
+    "sync:installer": "node scripts/sync-installer.js",
+    "sync:installer:watch": "node scripts/sync-installer.js --watch",
+    "prepare:installer": "node scripts/sync-installer.js",
+    "sync:installer:start": "node scripts/sync-installer.js --daemon",
+    "sync:installer:stop": "node scripts/sync-installer.js --stop",
+    "sync:installer:status": "node scripts/sync-installer.js --status"
+  },
+  "dependencies": {}
+}
