@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="dns-prefetch" href="https://unpkg.com">
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="dns-prefetch" href="https://script.google.com">
+    <script src="site.config.js"></script>
     <script src="config.js?v=2026_1"></script>
 
     <script>
@@ -15,6 +14,18 @@
             const CACHE_KEY = 'cepat_global_settings';
             const CACHE_AGE = 60 * 60 * 1000; 
             window.waAdminGlobal = '';
+
+            function syncGlobalSettingsCache(data, timestamp, version) {
+                if (!data) return;
+                const payload = { data: data, time: Number(timestamp || Date.now()), version: String(version || '') };
+                try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)); } catch (e) {}
+                if (window.__CEPAT_GLOBAL_SETTINGS__) {
+                    window.__CEPAT_GLOBAL_SETTINGS__.cached = payload;
+                    window.__CEPAT_GLOBAL_SETTINGS__.isFresh = true;
+                    window.__CEPAT_GLOBAL_SETTINGS__.version = payload.version;
+                }
+                window.applyGlobalSettings(data);
+            }
 
             window.applyGlobalSettings = function(data) {
                 if(data.site_favicon) {
@@ -59,6 +70,16 @@
 
             if (cached && cached.data) { applyGlobalSettings(cached.data); }
 
+            window.__CEPAT_GLOBAL_SETTINGS__ = {
+                key: CACHE_KEY,
+                maxAge: CACHE_AGE,
+                cached: cached,
+                isFresh: !!(cached && cached.time && (now - cached.time <= CACHE_AGE)),
+                version: String((cached && cached.version) || ''),
+                apply: window.applyGlobalSettings,
+                sync: syncGlobalSettingsCache
+            };
+
             if (!cached || !cached.time || (now - cached.time > CACHE_AGE)) {
                 // Optimization: Skip separate fetch here. 
                 // loadDashboard() will fetch settings via get_dashboard_data and update this cache.
@@ -67,8 +88,9 @@
         })();
     </script>
     <title>Member Area</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+    <link rel="preload" as="style" href="tailwind.css?v=2026_1">
+    <link rel="stylesheet" href="tailwind.css?v=2026_1">
+    <script defer src="assets/vendor/lucide.min.js?v=0.577.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; overflow: hidden; background-color: #f8fafc; }
@@ -152,10 +174,6 @@
             <button onclick="switchSection('landing-pages')" id="nav-landing-pages" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-left transition-all">
                 <i data-lucide="layout" class="w-5 h-5"></i> Landing Page
             </button>
-            <button onclick="switchSection('bio-link')" id="nav-bio-link" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-left transition-all">
-                <i data-lucide="link" class="w-5 h-5"></i> Setting Bio Link
-            </button>
-            
             <div class="px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 mt-6">Akun</div>
             <button onclick="openProfileModal()" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-left hover:bg-slate-100 transition-colors text-slate-600">
                 <i data-lucide="user-cog" class="w-5 h-5"></i> Edit Profile
@@ -306,101 +324,6 @@
 
 
 
-            </div>
-
-            <!-- BIO LINK SETTINGS -->
-            <div id="bio-link-content" class="fade-in-up space-y-10 max-w-4xl mx-auto hidden">
-                <section>
-                    <div class="flex items-center justify-between mb-6">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                                <i data-lucide="link" class="w-5 h-5 text-white"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-xl font-bold text-slate-800">Setting Bio Link</h2>
-                                <p class="text-xs text-slate-400 font-medium">Kustomisasi halaman Bio Link personal Anda</p>
-                            </div>
-                        </div>
-                        <a href="#" target="_blank" id="btn-view-bio" class="px-4 py-2 bg-white border border-slate-200 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-50 transition-colors flex items-center gap-2">
-                            <i data-lucide="external-link" class="w-4 h-4"></i> Lihat Bio Link
-                        </a>
-                    </div>
-
-                    <div class="section-panel bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                        <form id="bio-link-form" onsubmit="saveBioLink(event)" class="space-y-6">
-                            <!-- URL Info -->
-                            <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100 mb-6">
-                                <p class="text-xs text-indigo-800 font-semibold mb-1">Link Bio Anda:</p>
-                                <div class="flex items-center gap-2">
-                                    <code id="bio-url-preview" class="text-sm font-mono text-indigo-600 bg-white px-2 py-1 rounded border border-indigo-200 flex-1 truncate">...</code>
-                                    <button type="button" onclick="copyBioLink()" class="p-1.5 bg-indigo-200 hover:bg-indigo-300 rounded text-indigo-700 transition-colors">
-                                        <i data-lucide="copy" class="w-4 h-4"></i>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div class="space-y-4">
-                                    <div>
-                                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Foto Profil (URL)</label>
-                                        <input type="url" id="bio-photo" placeholder="https://..." class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                        <p class="text-[10px] text-slate-400 mt-1">Gunakan link gambar langsung (cth: ImageKit, Imgur)</p>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nama Tampilan</label>
-                                        <input type="text" id="bio-name" placeholder="Nama Anda" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Bio / Deskripsi Singkat</label>
-                                        <textarea id="bio-desc" rows="3" placeholder="Deskripsikan diri Anda..." class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"></textarea>
-                                    </div>
-                                </div>
-                                <div class="space-y-4">
-                                    <div>
-                                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nomor WhatsApp</label>
-                                        <input type="text" id="bio-wa" placeholder="08..." class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Email Kontak</label>
-                                        <input type="email" id="bio-email" placeholder="email@contoh.com" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="border-t border-slate-100 pt-6">
-                                <h3 class="text-sm font-bold text-slate-700 mb-4">Social Media Links</h3>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div class="relative">
-                                        <div class="absolute left-4 top-3.5 text-slate-400"><i data-lucide="facebook" class="w-4 h-4"></i></div>
-                                        <input type="url" id="bio-fb" placeholder="Link Facebook" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                    <div class="relative">
-                                        <div class="absolute left-4 top-3.5 text-slate-400"><i data-lucide="instagram" class="w-4 h-4"></i></div>
-                                        <input type="url" id="bio-ig" placeholder="Link Instagram" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                    <div class="relative">
-                                        <div class="absolute left-4 top-3.5 text-slate-400"><i data-lucide="twitter" class="w-4 h-4"></i></div>
-                                        <input type="url" id="bio-twitter" placeholder="Link Twitter/X" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                    <div class="relative">
-                                        <div class="absolute left-4 top-3.5 text-slate-400"><i data-lucide="youtube" class="w-4 h-4"></i></div>
-                                        <input type="url" id="bio-youtube" placeholder="Link YouTube" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                    <div class="relative">
-                                        <div class="absolute left-4 top-3.5 text-slate-400"><i data-lucide="music" class="w-4 h-4"></i></div>
-                                        <input type="url" id="bio-tiktok" placeholder="Link TikTok" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="flex justify-end pt-4">
-                                <button type="submit" id="btn-save-bio" class="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all transform active:scale-95 flex items-center gap-2">
-                                    <i data-lucide="save" class="w-4 h-4"></i> Simpan Perubahan
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </section>
             </div>
 
             <!-- PARTNER SECTION (Hidden by default) -->
@@ -561,6 +484,7 @@
         }
 
         const DASHBOARD_CACHE_KEY = 'cepat_dashboard_data';
+        const DASHBOARD_CACHE_AGE = 60 * 1000;
 
         function toggleSidebar() {
             const sb = document.getElementById('sidebar');
@@ -694,123 +618,6 @@
             navigator.clipboard.writeText(finalAffLink);
             showToast("Link promosi produk berhasil disalin!", "success");
         }
-
-        // --- BIO LINK FUNCTIONS ---
-        let bioLinkLoaded = false;
-        async function loadBioLinkData() {
-            // Generate Bio Link URL
-            // User requested: site_url/bio.html?u=user_id
-            let path = window.location.pathname;
-            // Remove 'dashboard.html' or 'dashboard' from the end of the path
-            path = path.replace(/\/dashboard(\.html)?\/?$/, '');
-            // Remove trailing slash if path is not empty
-            if (path.endsWith('/') && path.length > 1) path = path.slice(0, -1);
-            if (path === '/') path = ''; // Ensure root path is empty string for cleaner concatenation
-            
-            const baseUrl = window.location.origin + path;
-            
-            // Construct correct bio URL
-            // Example: https://kelasjagoan.my.id/bio.html?u=USR-123
-            const bioUrl = `${baseUrl}/bio.html?u=${userId}`;
-            
-            // Update UI
-            document.getElementById('bio-url-preview').innerText = bioUrl;
-            document.getElementById('btn-view-bio').href = bioUrl;
-            
-            if (bioLinkLoaded) return;
-            
-            try {
-                // Show loading indicator in form if needed, or just fetch quietly
-                const res = await fetch(SCRIPT_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'get_bio_link', user_id: userId })
-                });
-                const r = await res.json();
-                if (r.status === 'success' && r.data) {
-                    const d = r.data;
-                    document.getElementById('bio-photo').value = d.photo_url || '';
-                    document.getElementById('bio-name').value = d.display_name || '';
-                    document.getElementById('bio-desc').value = d.bio || '';
-                    document.getElementById('bio-wa').value = d.wa || '';
-                    document.getElementById('bio-email').value = d.email || '';
-                    
-                    if (d.socials_json) {
-                        try {
-                            const socials = JSON.parse(d.socials_json);
-                            document.getElementById('bio-fb').value = socials.fb || '';
-                            document.getElementById('bio-ig').value = socials.ig || '';
-                            document.getElementById('bio-twitter').value = socials.twitter || '';
-                            document.getElementById('bio-youtube').value = socials.youtube || '';
-                            document.getElementById('bio-tiktok').value = socials.tiktok || '';
-                        } catch(e) {}
-                    }
-                    bioLinkLoaded = true;
-                }
-            } catch (e) {
-                console.error("Failed to load bio link data", e);
-            }
-        }
-
-        async function saveBioLink(event) {
-            event.preventDefault();
-            
-            if (!userId) {
-                showToast("Sesi habis. Silakan login ulang.", "error");
-                setTimeout(() => window.location.href = 'login.html', 1500);
-                return;
-            }
-
-            const btn = document.getElementById('btn-save-bio');
-            const oriText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Loading...';
-            lucide.createIcons();
-
-            const socials = {
-                fb: document.getElementById('bio-fb').value,
-                ig: document.getElementById('bio-ig').value,
-                twitter: document.getElementById('bio-twitter').value,
-                youtube: document.getElementById('bio-youtube').value,
-                tiktok: document.getElementById('bio-tiktok').value
-            };
-
-            const payload = {
-                action: 'save_bio_link',
-                user_id: userId,
-                photo_url: document.getElementById('bio-photo').value,
-                display_name: document.getElementById('bio-name').value,
-                bio: document.getElementById('bio-desc').value,
-                wa: document.getElementById('bio-wa').value,
-                email: document.getElementById('bio-email').value,
-                socials: socials
-            };
-
-            try {
-                const res = await fetch(SCRIPT_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-                const r = await res.json();
-                if (r.status === 'success') {
-                    showToast('Bio Link berhasil disimpan!', 'success');
-                } else {
-                    showToast(r.message || 'Gagal menyimpan Bio Link', 'error');
-                }
-            } catch (e) {
-                showToast('Terjadi kesalahan koneksi', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = oriText;
-                lucide.createIcons();
-            }
-        }
-
-        function copyBioLink() {
-             const bioUrl = document.getElementById('bio-url-preview').innerText;
-             navigator.clipboard.writeText(bioUrl);
-             showToast("Link Bio berhasil disalin!", "success");
-        }
-
 
         function requestWithdrawal() {
             const saldoEl = document.getElementById('display-saldo-komisi').innerText;
@@ -996,7 +803,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                                     <i data-lucide="check-circle-2" class="w-3 h-3"></i> Aktif
                                 </span>
                             </div>
-                            ${p.image_url ? `<div class="w-full aspect-square rounded-2xl overflow-hidden mb-6 border border-slate-100"><img src="${p.image_url}" class="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500" onerror="this.style.display='none'"></div>` : ''}
+                            ${p.image_url ? `<div class="w-full aspect-square rounded-2xl overflow-hidden mb-6 border border-slate-100"><img src="${p.image_url}" class="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500" onerror="this.style.display='none'" loading="lazy" decoding="async"></div>` : ''}
                             <h3 class="text-lg font-bold text-slate-800 mb-2 leading-tight group-hover:text-indigo-600 transition-colors clamp-2">${p.title}</h3>
                             <p class="text-xs text-slate-500 mb-6 flex-1 clamp-3 leading-relaxed">${p.desc}</p>
                             
@@ -1052,7 +859,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                                     <i data-lucide="tag" class="w-3 h-3"></i> Tersedia
                                 </span>
                             </div>
-                            ${p.image_url ? `<div class="w-full aspect-square rounded-2xl overflow-hidden mb-6 border border-slate-100"><img src="${p.image_url}" class="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500" onerror="this.style.display='none'"></div>` : ''}
+                            ${p.image_url ? `<div class="w-full aspect-square rounded-2xl overflow-hidden mb-6 border border-slate-100"><img src="${p.image_url}" class="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500" onerror="this.style.display='none'" loading="lazy" decoding="async"></div>` : ''}
                             <h3 class="text-lg font-bold text-slate-800 mb-2 leading-tight clamp-2">${p.title}</h3>
                             <p class="text-xs text-slate-500 mb-4 flex-1 clamp-2 leading-relaxed">${p.desc}</p>
                             <div class="flex justify-between items-end mb-6 pt-4 border-t border-slate-50">
@@ -1171,23 +978,46 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
 
         async function loadDashboard() {
             const cacheKeyUser = DASHBOARD_CACHE_KEY + '_' + userEmail;
-            const cachedData = localStorage.getItem(cacheKeyUser);
+            const cachedRaw = localStorage.getItem(cacheKeyUser);
+            const globalCache = window.__CEPAT_GLOBAL_SETTINGS__ || {};
+            let cachedData = null;
+            let cachedAt = 0;
+            let cachedDashboardVersion = '';
+            try {
+                const parsed = cachedRaw ? JSON.parse(cachedRaw) : null;
+                if (parsed && typeof parsed === 'object' && parsed.data) {
+                    cachedData = parsed.data;
+                    cachedAt = Number(parsed.time || 0);
+                    cachedDashboardVersion = String(parsed.version || '');
+                } else if (parsed && typeof parsed === 'object') {
+                    cachedData = parsed;
+                }
+            } catch (e) { cachedData = null; }
             
             if(cachedData) {
-                const parsed = JSON.parse(cachedData);
                 // Apply cached settings immediately for better UX
-                if(parsed.settings) applyGlobalSettings(parsed.settings);
-                renderDashboardUI(parsed);
+                if(cachedData.settings) applyGlobalSettings(cachedData.settings);
+                renderDashboardUI(cachedData);
             }
 
             try {
                 if(typeof SCRIPT_URL === 'undefined') return;
+                const cacheState = (window.CEPAT_CACHE_STATE && typeof window.CEPAT_CACHE_STATE.ensureFresh === 'function')
+                    ? await window.CEPAT_CACHE_STATE.ensureFresh()
+                    : null;
+                const currentDashboardVersion = String((cacheState && cacheState.dashboard) || '');
+                const currentSettingsVersion = String((cacheState && cacheState.settings) || '');
+                const cachedSettingsVersion = String((globalCache.cached && globalCache.cached.version) || '');
+                const isDashboardFresh = !!(cachedAt && (Date.now() - cachedAt <= DASHBOARD_CACHE_AGE));
+                const isDashboardVersionStale = !!currentDashboardVersion && cachedDashboardVersion !== currentDashboardVersion;
+                const isSettingsVersionStale = !!currentSettingsVersion && cachedSettingsVersion !== currentSettingsVersion;
+                if (cachedData && isDashboardFresh && !isDashboardVersionStale && !isSettingsVersionStale) return;
                 
                 // SINGLE BATCH REQUEST - OPTIMIZED
                 // Menggantikan 3 request terpisah (settings, products, pages) menjadi 1
                 const res = await fetch(SCRIPT_URL, { 
                     method: 'POST', 
-                    body: JSON.stringify({ action: 'get_dashboard_data', email: userEmail }) 
+                    body: JSON.stringify({ action: 'get_dashboard_data', email: userEmail, cache_version: currentDashboardVersion }) 
                 });
                 const r = await res.json();
 
@@ -1197,23 +1027,26 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                         ...r.data.products, // owned, available, partners, total_komisi
                         pages: r.data.pages,
                         settings: r.data.settings,
-                        user: r.data.user, // Include user data (id, nama, upline_id)
-                        affiliate_pixels: r.data.affiliate_pixels
-                    };
+                            user: r.data.user, // Include user data (id, nama, upline_id)
+                            affiliate_pixels: r.data.affiliate_pixels
+                        };
 
-                    const freshData = JSON.stringify(combinedData);
+                        const freshData = JSON.stringify(combinedData);
+                        const previousData = cachedData ? JSON.stringify(cachedData) : '';
+                        const nextDashboardVersion = String((r && r.cache_version) || currentDashboardVersion || '');
                     
-                    // Update cache & UI
-                    if(cachedData !== freshData) {
-                        localStorage.setItem(cacheKeyUser, freshData);
-                        // Update Global Settings (Logo, Favicon, WA, etc)
-                        if(r.data.settings) {
-                            applyGlobalSettings(r.data.settings);
-                            // Update juga cache global settings terpisah agar login page juga dapet update
-                            localStorage.setItem('cepat_global_settings', JSON.stringify({ data: r.data.settings, time: Date.now() }));
+                        // Update cache & UI
+                        if(previousData !== freshData) {
+                            localStorage.setItem(cacheKeyUser, JSON.stringify({ data: combinedData, time: Date.now(), version: nextDashboardVersion }));
+                            // Update Global Settings (Logo, Favicon, WA, etc)
+                            if(r.data.settings) {
+                                if (globalCache && typeof globalCache.sync === 'function') globalCache.sync(r.data.settings, Date.now(), currentSettingsVersion);
+                                else applyGlobalSettings(r.data.settings);
+                            }
+                            renderDashboardUI(combinedData);
+                        } else {
+                            localStorage.setItem(cacheKeyUser, JSON.stringify({ data: cachedData || combinedData, time: Date.now(), version: nextDashboardVersion || cachedDashboardVersion }));
                         }
-                        renderDashboardUI(combinedData);
-                    }
                 } else { 
                     if(!cachedData) showToast('Gagal memuat data: ' + (r.message || 'Server Error'), 'error'); 
                     console.error("Server Error:", r);
@@ -1230,17 +1063,12 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             document.getElementById('section-partner').classList.add('hidden');
             document.getElementById('section-products').classList.add('hidden');
             document.getElementById('section-landing-pages').classList.add('hidden');
-            document.getElementById('bio-link-content').classList.add('hidden');
             
             // Show target section
             if(sectionId === 'dashboard') document.getElementById('dashboard-content').classList.remove('hidden');
             if(sectionId === 'partner') document.getElementById('section-partner').classList.remove('hidden');
             if(sectionId === 'products') document.getElementById('section-products').classList.remove('hidden');
             if(sectionId === 'landing-pages') document.getElementById('section-landing-pages').classList.remove('hidden');
-            if(sectionId === 'bio-link') {
-                document.getElementById('bio-link-content').classList.remove('hidden');
-                loadBioLinkData();
-            }
             
             // Update Sidebar Active State
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -1248,7 +1076,6 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             if(sectionId === 'partner') document.getElementById('nav-partner').classList.add('active');
             if(sectionId === 'products') document.getElementById('nav-products').classList.add('active');
             if(sectionId === 'landing-pages') document.getElementById('nav-landing-pages').classList.add('active');
-            if(sectionId === 'bio-link') document.getElementById('nav-bio-link').classList.add('active');
             
             // Re-initialize icons if needed (sometimes helps with hidden elements)
             setTimeout(() => lucide.createIcons(), 50);
@@ -1754,6 +1581,11 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             .then(res => res.json())
             .then(r => {
                 if(r.status === 'success') {
+                    try {
+                        if (r.cache_state && window.CEPAT_CACHE_STATE && typeof window.CEPAT_CACHE_STATE.sync === 'function') {
+                            window.CEPAT_CACHE_STATE.sync(r.cache_state, Date.now());
+                        }
+                    } catch (e) {}
                     showToast('Halaman berhasil dihapus', 'success');
                     loadMyPages();
                 } else {
@@ -1879,6 +1711,11 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                 const r = await res.json();
                 
                 if(r.status === 'success') {
+                    try {
+                        if (r.cache_state && window.CEPAT_CACHE_STATE && typeof window.CEPAT_CACHE_STATE.sync === 'function') {
+                            window.CEPAT_CACHE_STATE.sync(r.cache_state, Date.now());
+                        }
+                    } catch (e) {}
                     showToast('Halaman berhasil disimpan!', 'success');
                     closeModal('modal-page');
                     loadMyPages(); // Reload list

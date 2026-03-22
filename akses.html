@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="dns-prefetch" href="https://unpkg.com">
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="dns-prefetch" href="https://script.google.com">
+    <script src="site.config.js"></script>
     <script src="config.js?v=2026_1"></script>
 
     <script>
@@ -67,8 +66,9 @@
         })();
     </script>
     <title>Akses Materi - Cepat Digital</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+    <link rel="preload" as="style" href="tailwind.css?v=2026_1">
+    <link rel="stylesheet" href="tailwind.css?v=2026_1">
+    <script defer src="assets/vendor/lucide.min.js?v=0.577.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; }
@@ -165,6 +165,7 @@
     <script>
         // SCRIPT_URL sudah tidak perlu dideklarasikan manual di sini karena diambil dari config.js
         const DASHBOARD_CACHE_KEY = 'cepat_dashboard_data'; 
+        const DASHBOARD_CACHE_AGE = 60 * 1000;
 
         // 1. CEK SESI LOGIN
         const userEmail = sessionStorage.getItem('user_email');
@@ -215,20 +216,35 @@
 
             const cacheKeyUser = DASHBOARD_CACHE_KEY + '_' + userEmail;
             const cachedDataStr = localStorage.getItem(cacheKeyUser);
+            let cachedData = null;
+            let cachedAt = 0;
             let accessGrantedFromCache = false;
+            let cachedProduct = null;
+
+            try {
+                const parsed = cachedDataStr ? JSON.parse(cachedDataStr) : null;
+                if (parsed && typeof parsed === 'object' && parsed.data) {
+                    cachedData = parsed.data;
+                    cachedAt = Number(parsed.time || 0);
+                } else if (parsed && typeof parsed === 'object') {
+                    cachedData = parsed;
+                }
+            } catch (e) { cachedData = null; }
 
             // JIKA ADA CACHE DASHBOARD: Render langsung jika produk ada di list 'owned'
-            if (cachedDataStr) {
-                try {
-                    const cachedData = JSON.parse(cachedDataStr);
-                    if (cachedData.status === 'success' && cachedData.owned) {
-                        const product = cachedData.owned.find(p => p.id === productId);
-                        if (product) {
-                            renderAccessUI(product);
-                            accessGrantedFromCache = true;
-                        }
-                    }
-                } catch(e) {}
+            if (cachedData && Array.isArray(cachedData.owned)) {
+                cachedProduct = cachedData.owned.find(p => p.id === productId) || null;
+                if (cachedProduct) {
+                    renderAccessUI(cachedProduct);
+                    accessGrantedFromCache = true;
+                }
+            }
+
+            if (cachedData && cachedAt && (Date.now() - cachedAt <= DASHBOARD_CACHE_AGE)) {
+                if (!accessGrantedFromCache) {
+                    showError("Maaf, Anda belum membeli produk ini atau akses pembayaran Anda telah ditangguhkan.");
+                }
+                return;
             }
 
             // Pengecekan sinkronisasi data ke server Google diam-diam
@@ -242,13 +258,11 @@
                 const r = await res.json();
 
                 if (r.status === 'success') {
-                    // Update cache Dashboard agar selalu fresh
-                    const freshDataStr = JSON.stringify(r);
-                    if(cachedDataStr !== freshDataStr) {
-                        localStorage.setItem(cacheKeyUser, freshDataStr);
-                    }
+                    // Update cache Dashboard agar selalu fresh tanpa menghapus field lain
+                    const mergedData = Object.assign({}, cachedData || {}, r, { owned: r.owned || [], available: r.available || [] });
+                    localStorage.setItem(cacheKeyUser, JSON.stringify({ data: mergedData, time: Date.now() }));
 
-                    const product = r.owned.find(p => p.id === productId);
+                    const product = (r.owned || []).find(p => p.id === productId);
 
                     if (product) {
                         // Jika sebelumnya belum render dari cache, render sekarang

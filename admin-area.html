@@ -5,21 +5,465 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="dns-prefetch" href="https://unpkg.com">
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="dns-prefetch" href="https://script.google.com">
+    <script src="site.config.js"></script>
     <script src="config.js?v=2026_1"></script>
     <script>
+        // NOTE: This is intentionally defined early (in this <head> script)
+        // because other early boot scripts call it before the main app script
+        // near the bottom of the page is evaluated.
+        function getApiEndpoint() {
+            try {
+                if (window.API_URL) return window.API_URL;
+                const host = location.hostname;
+                if (location.protocol === 'file:' || host === 'localhost' || host === '127.0.0.1') {
+                    return (typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : null;
+                }
+                return '/api';
+            } catch (e) {
+                return window.API_URL || ((typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : '/api');
+            }
+        }
+
+        function buildFallbackFavicon(siteName) {
+            const label = String(siteName || 'A').trim().charAt(0).toUpperCase() || 'A';
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#4f46e5"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">${label}</text></svg>`;
+            return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+        }
+
+        function normalizeBrandAssetUrl(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^data:image\//i.test(raw)) return raw;
+            if (raw.charAt(0) === '/') return raw;
+            try {
+                const parsed = new URL(raw);
+                const protocol = String(parsed.protocol || '').toLowerCase();
+                const hostname = String(parsed.hostname || '').toLowerCase();
+                if (protocol !== 'http:' && protocol !== 'https:') return '';
+                if (
+                    hostname === 'example.com' ||
+                    hostname === 'example.org' ||
+                    hostname === 'example.net' ||
+                    hostname.endsWith('.example.com') ||
+                    hostname.endsWith('.example.org') ||
+                    hostname.endsWith('.example.net')
+                ) {
+                    return '';
+                }
+                return parsed.href;
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function applyBrandLogo(imgEl, iconEl, logoUrl) {
+            if (!imgEl || !iconEl) return;
+            const safeUrl = normalizeBrandAssetUrl(logoUrl);
+            if (!safeUrl) {
+                imgEl.classList.add('hidden');
+                iconEl.classList.remove('hidden');
+                imgEl.removeAttribute('src');
+                return;
+            }
+
+            imgEl.onload = () => {
+                imgEl.classList.remove('hidden');
+                iconEl.classList.add('hidden');
+            };
+            imgEl.onerror = () => {
+                imgEl.classList.add('hidden');
+                iconEl.classList.remove('hidden');
+                imgEl.removeAttribute('src');
+            };
+            imgEl.src = safeUrl;
+        }
+
+        function applyBrandFavicon(faviconUrl, siteName) {
+            let link = document.querySelector("link[rel~='icon']");
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.head.appendChild(link);
+            }
+
+            const fallback = buildFallbackFavicon(siteName);
+            const safeUrl = normalizeBrandAssetUrl(faviconUrl);
+            if (!safeUrl) {
+                link.href = fallback;
+                return;
+            }
+
+            const probe = new Image();
+            probe.onload = () => {
+                link.href = safeUrl;
+            };
+            probe.onerror = () => {
+                link.href = fallback;
+            };
+            probe.src = safeUrl;
+        }
+
+        function normalizeMootaInput(value) {
+            return String(value || '').trim();
+        }
+
+        function normalizeMootaUrl(value) {
+            const raw = normalizeMootaInput(value);
+            if (!raw) return '';
+            try {
+                const parsed = new URL(raw);
+                parsed.search = '';
+                parsed.hash = '';
+                return parsed.toString().replace(/\?$/, '');
+            } catch (e) {
+                return raw;
+            }
+        }
+
+        function isValidMootaUrl(value) {
+            const url = normalizeMootaUrl(value);
+            if (!url) return false;
+            try {
+                const parsed = new URL(url);
+                return parsed.protocol === 'https:' && !parsed.search && !parsed.hash;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function isDirectAppsScriptUrl(value) {
+            const url = normalizeMootaUrl(value);
+            if (!url) return false;
+            try {
+                const parsed = new URL(url);
+                const host = String(parsed.hostname || '').toLowerCase();
+                return host === 'script.google.com' || host === 'script.googleusercontent.com';
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function isValidMootaToken(value) {
+            return /^[A-Za-z0-9]{8,200}$/.test(normalizeMootaInput(value));
+        }
+
+        function setMootaStatus(message, type = 'info') {
+            const box = document.getElementById('moota-test-status');
+            if (!box) return;
+            box.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'text-red-700', 'bg-sky-50', 'border-sky-200', 'text-sky-700', 'bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'bg-amber-50', 'border-amber-200', 'text-amber-700', 'bg-slate-50', 'border-slate-200', 'text-slate-600');
+            if (type === 'error') {
+                box.classList.add('bg-red-50', 'border-red-200', 'text-red-700');
+            } else if (type === 'success') {
+                box.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-700');
+            } else if (type === 'warning') {
+                box.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-700');
+            } else if (type === 'brand') {
+                box.classList.add('bg-sky-50', 'border-sky-200', 'text-sky-700');
+            } else {
+                box.classList.add('bg-slate-50', 'border-slate-200', 'text-slate-600');
+            }
+            box.textContent = message;
+        }
+
+        function toggleSensitiveField(fieldId, buttonEl) {
+            const input = document.getElementById(fieldId);
+            if (!input) return;
+            input.type = input.type === 'password' ? 'text' : 'password';
+            if (buttonEl) {
+                buttonEl.textContent = input.type === 'password' ? 'Show' : 'Hide';
+            }
+        }
+
+        function updateMootaHints(tokenConfigured) {
+            MOOTA_TOKEN_CONFIGURED = !!tokenConfigured;
+
+            const tokenHint = document.getElementById('moota-token-hint');
+            const tokenInput = document.getElementById('set-moota-token');
+
+            if (tokenHint && tokenInput) {
+                if (MOOTA_TOKEN_CONFIGURED) {
+                    tokenHint.textContent = 'Secret Token sudah tersimpan di server. Isi field ini hanya jika ingin mengganti token.';
+                    tokenInput.placeholder = 'Secret Token sudah tersimpan. Isi hanya jika ingin mengganti.';
+                } else {
+                    tokenHint.textContent = 'Secret Token wajib diisi untuk memverifikasi signature HMAC webhook Moota.';
+                    tokenInput.placeholder = 'Secret123';
+                }
+            }
+        }
+
+        function getMootaFormConfig() {
+            return {
+                gasUrl: normalizeMootaUrl(document.getElementById('set-moota-url').value),
+                token: normalizeMootaInput(document.getElementById('set-moota-token').value),
+                hasStoredToken: !!MOOTA_TOKEN_CONFIGURED
+            };
+        }
+
+        function validateMootaFormConfig(config) {
+            const cfg = config || getMootaFormConfig();
+            const hasAnyValue = !!(cfg.gasUrl || cfg.token || cfg.hasStoredToken);
+            const errors = [];
+            if (!hasAnyValue) return { hasAnyValue: false, errors };
+
+            if (!cfg.gasUrl) errors.push('Link webhook Moota wajib diisi.');
+            else if (!isValidMootaUrl(cfg.gasUrl)) errors.push('Format link webhook Moota tidak valid. Gunakan HTTPS tanpa query string.');
+            else if (isDirectAppsScriptUrl(cfg.gasUrl)) errors.push('Link webhook Moota tidak boleh langsung ke Google Apps Script. Gunakan endpoint Cloudflare Worker atau proxy publik agar header Signature bisa diteruskan.');
+
+            if (!cfg.token && !cfg.hasStoredToken) errors.push('Secret Token Moota wajib diisi.');
+            if (cfg.token && !isValidMootaToken(cfg.token)) errors.push('Format Secret Token Moota tidak valid. Gunakan minimal 8 karakter alphanumeric tanpa spasi.');
+
+            return { hasAnyValue: true, errors };
+        }
+
+        async function testMootaConnection(options = {}) {
+            const opts = options || {};
+            try {
+                if (guardDemoAdminAction('test koneksi Moota')) return null;
+                const cfg = getMootaFormConfig();
+                const validation = validateMootaFormConfig(cfg);
+
+                if (!validation.hasAnyValue) {
+                    const msg = 'Konfigurasi Moota masih kosong. Isi link webhook dan Secret Token terlebih dahulu.';
+                    setMootaStatus(msg, 'warning');
+                    if (!opts.silent) showToast(msg, 'warning');
+                    return null;
+                }
+
+                if (validation.errors.length) {
+                    throw new Error(validation.errors[0]);
+                }
+
+                const endpoint = getApiEndpoint();
+                if (!endpoint) throw new Error('API endpoint tidak tersedia.');
+
+                setMootaStatus('Menguji webhook Moota...', 'brand');
+                const payload = buildAdminAuthPayload({
+                    action: 'test_moota_config',
+                    moota_gas_url: cfg.gasUrl
+                });
+                if (cfg.token) payload.moota_token = cfg.token;
+
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const rawText = await res.text();
+                let data = {};
+                try {
+                    data = rawText ? JSON.parse(rawText) : {};
+                } catch (parseError) {
+                    throw new Error('Respons test Moota tidak valid dari server.');
+                }
+
+                if (!res.ok) {
+                    throw new Error(data.message || ('Permintaan test Moota gagal (HTTP ' + res.status + ').'));
+                }
+                if (data.status !== 'success') {
+                    throw new Error(String(data.message || 'Koneksi Moota gagal.'));
+                }
+
+                const saveReminder = cfg.token ? ' Klik "Update API Sistem" untuk menyimpan Secret Token ini ke server.' : '';
+                const msg = String(data.message || 'Koneksi webhook Moota berhasil.') + saveReminder;
+                setMootaStatus(msg, 'success');
+                if (!opts.silent) {
+                    showToast(
+                        cfg.token
+                            ? 'Koneksi Moota berhasil diuji. Simpan pengaturan untuk menyimpan Secret Token.'
+                            : 'Koneksi Moota berhasil diuji.',
+                        'success'
+                    );
+                }
+                return data;
+            } catch (error) {
+                const msg = error && error.message ? error.message : 'Koneksi Moota gagal.';
+                setMootaStatus(msg, 'error');
+                if (opts.silent) throw new Error(msg);
+                showToast(msg, 'error');
+                return null;
+            }
+        }
+
+        function normalizeImageKitInput(value) {
+            return String(value || '').trim();
+        }
+
+        function normalizeImageKitEndpoint(value) {
+            return normalizeImageKitInput(value).replace(/\/+$/, '');
+        }
+
+        function isValidImageKitPublicKey(value) {
+            return /^public_[A-Za-z0-9+/=._-]+$/.test(normalizeImageKitInput(value));
+        }
+
+        function isValidImageKitPrivateKey(value) {
+            return /^private_[A-Za-z0-9+/=._-]+$/.test(normalizeImageKitInput(value));
+        }
+
+        function isValidImageKitEndpoint(value) {
+            const endpoint = normalizeImageKitEndpoint(value);
+            if (!endpoint) return false;
+            try {
+                const parsed = new URL(endpoint);
+                return parsed.protocol === 'https:' && !parsed.search && !parsed.hash;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function setImageKitStatus(message, type = 'info') {
+            const box = document.getElementById('ik-test-status');
+            if (!box) return;
+            box.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'text-red-700', 'bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'bg-amber-50', 'border-amber-200', 'text-amber-700', 'bg-slate-50', 'border-slate-200', 'text-slate-600');
+            if (type === 'error') {
+                box.classList.add('bg-red-50', 'border-red-200', 'text-red-700');
+            } else if (type === 'success') {
+                box.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-700');
+            } else if (type === 'warning') {
+                box.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-700');
+            } else {
+                box.classList.add('bg-slate-50', 'border-slate-200', 'text-slate-600');
+            }
+            box.textContent = message;
+        }
+
+        function updateImageKitPrivateHint(configured) {
+            IK_PRIVATE_CONFIGURED = !!configured;
+            const hint = document.getElementById('ik-private-hint');
+            const input = document.getElementById('set-ik-priv');
+            if (!hint || !input) return;
+            if (IK_PRIVATE_CONFIGURED) {
+                hint.textContent = 'Private key sudah tersimpan di server. Kosongkan field ini jika tidak ingin mengganti private key.';
+                input.placeholder = 'Private key sudah tersimpan. Isi hanya jika ingin mengganti.';
+            } else {
+                hint.textContent = 'Private key belum tersimpan. Isi field ini agar Media Center bisa autentikasi ke ImageKit.';
+                input.placeholder = 'private_xxxxx';
+            }
+        }
+
+        function getImageKitFormConfig() {
+            return {
+                publicKey: normalizeImageKitInput(document.getElementById('set-ik-pub').value),
+                endpoint: normalizeImageKitEndpoint(document.getElementById('set-ik-end').value),
+                privateKey: normalizeImageKitInput(document.getElementById('set-ik-priv').value),
+                hasStoredPrivateKey: !!IK_PRIVATE_CONFIGURED
+            };
+        }
+
+        function validateImageKitFormConfig(config, options = {}) {
+            const cfg = config || getImageKitFormConfig();
+            const opts = options || {};
+            const hasAnyValue = !!(cfg.publicKey || cfg.endpoint || cfg.privateKey || cfg.hasStoredPrivateKey);
+            const errors = [];
+            if (!hasAnyValue) return { hasAnyValue: false, errors };
+
+            if (!cfg.publicKey) errors.push('ImageKit public key wajib diisi.');
+            else if (!isValidImageKitPublicKey(cfg.publicKey)) errors.push('Format ImageKit public key tidak valid. Harus diawali dengan "public_".');
+
+            if (!cfg.endpoint && !opts.allowMissingEndpoint) errors.push('ImageKit URL endpoint wajib diisi.');
+            else if (cfg.endpoint && !isValidImageKitEndpoint(cfg.endpoint)) errors.push('Format ImageKit URL endpoint tidak valid. Gunakan HTTPS, misalnya https://ik.imagekit.io/nama-endpoint');
+
+            if (!cfg.privateKey && !cfg.hasStoredPrivateKey) errors.push('ImageKit private key wajib diisi.');
+            if (cfg.privateKey && !isValidImageKitPrivateKey(cfg.privateKey)) errors.push('Format ImageKit private key tidak valid. Harus diawali dengan "private_".');
+
+            return { hasAnyValue: true, errors };
+        }
+
+        async function testImageKitConnection(options = {}) {
+            const opts = options || {};
+            try {
+                if (guardDemoAdminAction('test koneksi ImageKit')) return null;
+                const cfg = getImageKitFormConfig();
+                const validation = validateImageKitFormConfig(cfg, { allowMissingEndpoint: true });
+
+                if (!validation.hasAnyValue) {
+                    const msg = 'Konfigurasi ImageKit masih kosong. Isi public key, URL endpoint, dan private key terlebih dahulu.';
+                    setImageKitStatus(msg, 'warning');
+                    if (!opts.silent) showToast(msg, 'warning');
+                    return null;
+                }
+
+                if (validation.errors.length) {
+                    throw new Error(validation.errors[0]);
+                }
+
+                const endpoint = getApiEndpoint();
+                if (!endpoint) {
+                    throw new Error('API endpoint tidak tersedia.');
+                }
+
+                setImageKitStatus('Menguji koneksi ImageKit...', 'info');
+                const payload = buildAdminAuthPayload({
+                    action: 'test_ik_config',
+                    ik_public_key: cfg.publicKey,
+                    ik_endpoint: cfg.endpoint
+                });
+                if (cfg.privateKey) payload.ik_private_key = cfg.privateKey;
+
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const rawText = await res.text();
+                let data = {};
+                try {
+                    data = rawText ? JSON.parse(rawText) : {};
+                } catch (parseError) {
+                    throw new Error('Respons test ImageKit tidak valid dari server.');
+                }
+
+                if (!res.ok) {
+                    throw new Error(data.message || ('Permintaan test ImageKit gagal (HTTP ' + res.status + ').'));
+                }
+
+                if (data.status !== 'success') {
+                    throw new Error(String(data.message || 'Autentikasi ImageKit gagal.'));
+                }
+
+                if (!cfg.endpoint && data.endpoint) {
+                    document.getElementById('set-ik-end').value = data.endpoint;
+                }
+
+                IK_PUB = cfg.publicKey;
+                IK_END = data.endpoint || cfg.endpoint;
+
+                const warningText = Array.isArray(data.warnings) && data.warnings.length ? ' ' + data.warnings.join(' ') : '';
+                const saveReminder = cfg.privateKey ? ' Klik "Update API Sistem" untuk menyimpan private key ini ke server.' : '';
+                const msg = String(data.message || 'Koneksi ImageKit berhasil.') + warningText + saveReminder;
+                setImageKitStatus(msg, Array.isArray(data.warnings) && data.warnings.length ? 'warning' : 'success');
+                if (!opts.silent) {
+                    showToast(
+                        cfg.privateKey
+                            ? 'Koneksi ImageKit berhasil diuji. Simpan pengaturan untuk menyimpan private key.'
+                            : 'Koneksi ImageKit berhasil diuji.',
+                        'success'
+                    );
+                }
+                return data;
+            } catch (error) {
+                const msg = error && error.message ? error.message : 'Koneksi ImageKit gagal.';
+                setImageKitStatus(msg, 'error');
+                if (opts.silent) throw new Error(msg);
+                showToast(msg, 'error');
+                return null;
+            }
+        }
+
         (function() {
             const CACHE_KEY = 'cepat_global_settings';
-            const CACHE_AGE = 60 * 60 * 1000; 
+            const CACHE_AGE = 60 * 60 * 1000;
+
+            function syncGlobalSettingsCache(data, timestamp) {
+                if (!data) return;
+                const payload = { data: data, time: Number(timestamp || Date.now()) };
+                try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)); } catch (e) {}
+                applyGlobalSettings(data);
+            }
 
             function applyGlobalSettings(data) {
-                if(data.site_favicon) {
-                    let link = document.querySelector("link[rel~='icon']");
-                    if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
-                    link.href = data.site_favicon;
-                }
+                applyBrandFavicon(data.site_favicon, data.site_name);
                 if(data.site_name) {
                     document.title = document.title.replace(/Cepat Digital/gi, data.site_name).replace(/Cepat/gi, data.site_name);
                 }
@@ -38,28 +482,14 @@
                     const loginImg = document.getElementById('login-logo-img');
                     const loginIcon = document.getElementById('login-logo-icon');
                     if(loginImg && loginIcon) {
-                        if(logoUrl) {
-                            loginImg.src = logoUrl;
-                            loginImg.classList.remove('hidden');
-                            loginIcon.classList.add('hidden');
-                        } else {
-                            loginImg.classList.add('hidden');
-                            loginIcon.classList.remove('hidden');
-                        }
+                        applyBrandLogo(loginImg, loginIcon, logoUrl);
                     }
 
                     // Sidebar
                     const sidebarImg = document.getElementById('sidebar-logo-img');
                     const sidebarIcon = document.getElementById('sidebar-logo-icon');
                     if(sidebarImg && sidebarIcon) {
-                        if(logoUrl) {
-                            sidebarImg.src = logoUrl;
-                            sidebarImg.classList.remove('hidden');
-                            sidebarIcon.classList.add('hidden');
-                        } else {
-                            sidebarImg.classList.add('hidden');
-                            sidebarIcon.classList.remove('hidden');
-                        }
+                        applyBrandLogo(sidebarImg, sidebarIcon, logoUrl);
                     }
                 };
                 if (document.readyState === 'loading') {
@@ -75,23 +505,20 @@
             const now = Date.now();
 
             if (cached && cached.data) { applyGlobalSettings(cached.data); }
-
-            if (!cached || !cached.time || (now - cached.time > CACHE_AGE)) {
-                if(typeof SCRIPT_URL === 'undefined') { console.error("SCRIPT_URL belum didefinisikan di config.js!"); return; }
-                fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'get_global_settings' }) })
-                    .then(res => res.json())
-                    .then(r => {
-                        if(r.status === 'success') {
-                            localStorage.setItem(CACHE_KEY, JSON.stringify({ data: r.data, time: now }));
-                            applyGlobalSettings(r.data); 
-                        }
-                    }).catch(e => console.error("Global Settings Sync Failed", e));
-            }
+            window.__CEPAT_GLOBAL_SETTINGS__ = {
+                key: CACHE_KEY,
+                maxAge: CACHE_AGE,
+                cached: cached,
+                isFresh: !!(cached && cached.time && (now - cached.time <= CACHE_AGE)),
+                apply: applyGlobalSettings,
+                sync: syncGlobalSettingsCache
+            };
         })();
     </script>
     <title>SpotAdmin Cepat Digital</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+    <link rel="preload" as="style" href="tailwind.css?v=2026_1">
+    <link rel="stylesheet" href="tailwind.css?v=2026_1">
+    <script defer src="assets/vendor/lucide.min.js?v=0.577.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; overflow: hidden; background-color: #f8fafc; }
@@ -146,7 +573,7 @@
     <div id="toast-container"></div>
 
     <!-- LOGIN OVERLAY -->
-    <div id="login-overlay" class="fixed inset-0 z-[200] flex items-center justify-center p-4 relative overflow-hidden bg-slate-50">
+    <div id="login-overlay" class="fixed inset-0 z-[200] flex items-center justify-center p-4 overflow-hidden bg-slate-50">
         <!-- Abstract Background -->
         <div class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
             <div class="absolute top-[-20%] left-[-10%] w-[800px] h-[800px] bg-indigo-200/40 rounded-full mix-blend-multiply filter blur-[120px] animate-blob"></div>
@@ -191,6 +618,18 @@
                     LOGIN DASHBOARD
                 </button>
             </form>
+
+            <div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-left">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <p class="text-[11px] font-bold uppercase tracking-wider text-amber-700">Demo Admin Read Only</p>
+                        <p class="text-xs text-amber-700 mt-2 leading-relaxed">Gunakan email <span class="font-mono font-bold">admin@demo.com</span> dan password <span class="font-mono font-bold">admindemo</span> untuk melihat dashboard demo tanpa hak edit.</p>
+                    </div>
+                    <button type="button" onclick="fillDemoAdminLogin()" class="shrink-0 rounded-xl bg-white px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors">
+                        Isi Demo
+                    </button>
+                </div>
+            </div>
 
             <div class="mt-8 text-center">
                 <a href="index.html" class="text-xs font-semibold text-slate-400 hover:text-indigo-600 transition-colors">Back to Homepage</a>
@@ -247,7 +686,7 @@
                     <div class="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-lg">A</div>
                     <div class="overflow-hidden">
                         <p id="admin-name" class="font-bold text-slate-700 text-sm truncate">Admin</p>
-                        <p class="text-xs text-slate-400">Master Control</p>
+                        <p id="admin-role-note" class="text-xs text-slate-400">Master Control</p>
                     </div>
                 </div>
                 <button onclick="logout()" class="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-100 py-2.5 rounded-xl font-semibold text-xs transition-all">
@@ -277,6 +716,15 @@
             </header>
 
             <div class="p-6 md:p-10 max-w-7xl mx-auto pb-20">
+                <div id="demo-mode-banner" class="hidden mb-6 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-amber-800 shadow-sm">
+                    <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <p class="text-xs font-bold uppercase tracking-[0.2em]">Demo Mode Read Only</p>
+                            <p class="text-sm mt-1">Semua data disamarkan dan seluruh aksi perubahan dinonaktifkan. Sesi hanya berakhir saat logout manual.</p>
+                        </div>
+                        <span class="inline-flex w-fit items-center rounded-full border border-amber-300 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-700">No Changes Allowed</span>
+                    </div>
+                </div>
                 
                 <!-- DASHBOARD TAB -->
                 <div id="tab-orders" class="tab-content active">
@@ -296,7 +744,7 @@
                             </div>
                             <div>
                                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Pendapatan</p>
-                                <h3 id="stat-rev" class="text-3xl font-bold text-slate-800 tracking-tight text-emerald-600">Rp 0</h3>
+                                <h3 id="stat-rev" class="text-3xl font-bold tracking-tight text-emerald-600">Rp 0</h3>
                             </div>
                         </div>
                     </div>
@@ -450,6 +898,75 @@
 
                 <!-- SETTINGS TAB -->
                 <div id="tab-settings" class="tab-content">
+                    <div class="bg-white p-8 md:p-10 rounded-[2.5rem] border border-slate-100 shadow-sm mb-10">
+                        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-100 pb-6 mb-8">
+                            <div>
+                                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-3">
+                                    <i data-lucide="activity" class="w-5 h-5 text-indigo-500"></i> Worker Request Budget
+                                </h3>
+                                <p class="text-xs text-slate-500 mt-1">Monitoring permintaan Cloudflare Worker per jam/hari, cache hit ratio, dan early warning 80%-90% terhadap limit 100.000 request/hari.</p>
+                            </div>
+                            <button type="button" onclick="loadWorkerBudgetMetrics(false)" class="bg-indigo-50 text-indigo-700 px-4 py-3 rounded-xl font-bold text-xs uppercase hover:bg-indigo-100 transition-all flex items-center gap-2">
+                                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh Metrics
+                            </button>
+                        </div>
+                        <div id="worker-budget-alert" class="hidden rounded-2xl border px-4 py-3 text-xs font-medium mb-6"></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Daily Requests</p>
+                                <h4 id="worker-day-requests" class="text-3xl font-bold text-slate-800 mt-2">-</h4>
+                                <p id="worker-day-percent" class="text-xs text-slate-500 mt-2">-</p>
+                            </div>
+                            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Hourly Requests</p>
+                                <h4 id="worker-hour-requests" class="text-3xl font-bold text-slate-800 mt-2">-</h4>
+                                <p class="text-xs text-slate-500 mt-2">UTC hour berjalan</p>
+                            </div>
+                            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Cache Hit Ratio</p>
+                                <h4 id="worker-cache-ratio" class="text-3xl font-bold text-emerald-600 mt-2">-</h4>
+                                <p id="worker-saved-requests" class="text-xs text-slate-500 mt-2">-</p>
+                            </div>
+                            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Circuit Breaker</p>
+                                <h4 id="worker-circuit-state" class="text-3xl font-bold text-slate-800 mt-2">-</h4>
+                                <p id="worker-circuit-detail" class="text-xs text-slate-500 mt-2">-</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
+                            <div class="rounded-2xl border border-slate-100 p-5">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="font-bold text-slate-800">Trend 24 Jam</h4>
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">UTC</span>
+                                </div>
+                                <div id="worker-hourly-series" class="space-y-2 text-xs text-slate-500"></div>
+                            </div>
+                            <div class="rounded-2xl border border-slate-100 p-5">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="font-bold text-slate-800">7 Hari Terakhir</h4>
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">UTC</span>
+                                </div>
+                                <div id="worker-daily-series" class="space-y-2 text-xs text-slate-500"></div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
+                            <div class="rounded-2xl border border-slate-100 p-5">
+                                <h4 class="font-bold text-slate-800 mb-4">Top Paths</h4>
+                                <div id="worker-top-paths" class="space-y-2 text-xs text-slate-500"></div>
+                            </div>
+                            <div class="rounded-2xl border border-slate-100 p-5">
+                                <h4 class="font-bold text-slate-800 mb-4">Top API Actions</h4>
+                                <div id="worker-top-actions" class="space-y-2 text-xs text-slate-500"></div>
+                            </div>
+                        </div>
+                        <div class="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 mt-6">
+                            <div class="flex items-center gap-3 mb-3">
+                                <i data-lucide="gauge" class="w-5 h-5 text-indigo-600"></i>
+                                <h4 class="font-bold text-slate-800">Browser Request Savings</h4>
+                            </div>
+                            <div id="client-fetch-stats" class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-600"></div>
+                        </div>
+                    </div>
                     <!-- Cloudflare Section -->
                     <div class="bg-gradient-to-br from-amber-50 to-orange-50 p-8 md:p-10 rounded-[2.5rem] border border-orange-100 shadow-sm mb-10">
                         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-orange-200/50 pb-6 mb-8 gap-6">
@@ -526,14 +1043,76 @@
                                     <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 block">WA Admin (08xxx)</label>
                                     <input type="text" id="set-wa" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all font-mono text-sm">
                                 </div>
-
-                                
-                                <div class="hidden">
-                                    <input type="text" id="set-ik-pub"><input type="text" id="set-ik-end">
+                                <div class="rounded-[1.5rem] border border-sky-100 bg-sky-50/60 p-5 space-y-4">
+                                    <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                                        <div class="max-w-2xl">
+                                            <label class="text-xs font-bold text-sky-700 uppercase tracking-wider ml-1 mb-1 block">Moota Payment Gateway</label>
+                                            <p class="text-xs text-slate-500">Pengaturan Moota sekarang disederhanakan menjadi 2 field wajib: Webhook URL HTTPS dan Secret Token untuk verifikasi signature HMAC.</p>
+                                        </div>
+                                        <div class="w-full xl:w-auto">
+                                            <button type="button" onclick="testMootaConnection()" class="w-full bg-sky-600 text-white px-4 py-3 rounded-xl font-bold text-xs uppercase hover:bg-sky-700 transition-all shadow-lg shadow-sky-200">
+                                                Test Koneksi Moota
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 flex items-center gap-2">
+                                                <span>Webhook URL</span>
+                                                <i data-lucide="circle-help" class="w-3.5 h-3.5 text-slate-400" title="URL webhook publik yang dipasang di dashboard Moota. Wajib HTTPS dan tanpa query string."></i>
+                                            </label>
+                                            <input type="text" id="set-moota-url" placeholder="https://domainanda.com/webhook/moota" class="w-full p-4 bg-white border border-sky-100 rounded-xl outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 transition-all font-mono text-xs">
+                                            <p class="text-[11px] text-slate-500 mt-2">Gunakan URL webhook publik dari Cloudflare Worker atau proxy Anda. Jangan gunakan URL Google Apps Script langsung.</p>
+                                        </div>
+                                        <div>
+                                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 flex items-center gap-2">
+                                                <span>Secret Token</span>
+                                                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-slate-400" title="Token minimal 8 karakter alphanumeric yang dipakai untuk menghitung signature HMAC SHA-256 dari payload webhook Moota."></i>
+                                            </label>
+                                            <div class="relative">
+                                                <input type="password" id="set-moota-token" placeholder="Secret123" class="w-full p-4 pr-16 bg-white border border-sky-100 rounded-xl outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 transition-all font-mono text-xs">
+                                                <button type="button" onclick="toggleSensitiveField('set-moota-token', this)" class="absolute inset-y-0 right-3 text-[10px] font-bold uppercase text-sky-600">Show</button>
+                                            </div>
+                                            <p id="moota-token-hint" class="text-[11px] text-slate-500 mt-2"></p>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-2xl border border-white/70 bg-white/70 p-4 text-xs text-slate-500 space-y-3">
+                                        <p class="font-bold text-slate-700">Catatan penggunaan</p>
+                                        <p>1. Moota mengirim payload JSON array via `POST` dan signature di header `Signature`.</p>
+                                        <p>2. Jika Anda memakai Google Apps Script, arahkan webhook ke endpoint Cloudflare Worker atau proxy publik terlebih dahulu agar header `Signature` bisa diteruskan ke Apps Script.</p>
+                                        <p>3. Jalankan `Test Koneksi Moota` sebelum menyimpan agar Webhook URL dan Secret Token tervalidasi lebih dulu.</p>
+                                    </div>
+                                    <div id="moota-test-status" class="hidden rounded-xl border px-4 py-3 text-xs font-medium"></div>
+                                </div>
+                                <div class="rounded-[1.5rem] border border-emerald-100 bg-emerald-50/50 p-5 space-y-4">
+                                    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <label class="text-xs font-bold text-emerald-700 uppercase tracking-wider ml-1 mb-1 block">ImageKit Media Center</label>
+                                            <p class="text-xs text-slate-500">Isi public key, URL endpoint, dan private key langsung dari aplikasi. Private key hanya disimpan di server.</p>
+                                        </div>
+                                        <button type="button" onclick="testImageKitConnection()" class="w-full md:w-auto bg-white border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl font-bold text-xs uppercase hover:bg-emerald-100 transition-all">
+                                            Test Koneksi ImageKit
+                                        </button>
+                                    </div>
+                                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                                        <div>
+                                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 block">ImageKit Public Key</label>
+                                            <input type="text" id="set-ik-pub" placeholder="public_xxxxx" class="w-full p-4 bg-white border border-emerald-100 rounded-xl outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 transition-all font-mono text-xs">
+                                        </div>
+                                        <div>
+                                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 block">ImageKit URL Endpoint</label>
+                                            <input type="text" id="set-ik-end" placeholder="https://ik.imagekit.io/nama-endpoint" class="w-full p-4 bg-white border border-emerald-100 rounded-xl outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 transition-all font-mono text-xs">
+                                        </div>
+                                        <div>
+                                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 block">ImageKit Private Key</label>
+                                            <input type="password" id="set-ik-priv" placeholder="private_xxxxx" class="w-full p-4 bg-white border border-emerald-100 rounded-xl outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 transition-all font-mono text-xs">
+                                        </div>
+                                    </div>
+                                    <p id="ik-private-hint" class="text-[11px] text-slate-500"></p>
+                                    <div id="ik-test-status" class="hidden rounded-xl border px-4 py-3 text-xs font-medium"></div>
                                 </div>
 
                                 <button type="submit" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold uppercase text-xs mt-4 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Update API Sistem</button>
-                                <button type="button" onclick="normalizeUsers()" class="w-full bg-emerald-600 text-white p-4 rounded-xl font-bold uppercase text-xs mt-2 hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all">Sinkronisasi Kolom Users</button>
                             </form>
                         </div>
                     </div>
@@ -560,7 +1139,7 @@
     </div>
 
     <!-- MODAL PRODUCT -->
-    <div id="modal-prod" class="fixed inset-0 bg-slate-900/70 hidden z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div id="modal-prod" class="fixed inset-0 bg-slate-900/70 hidden z-[300] items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 md:p-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll relative">
             <button onclick="closeModal('modal-prod')" class="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
             
@@ -633,7 +1212,11 @@
 
                 <div>
                     <label class="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2 block">Deskripsi Singkat</label>
-                    <textarea id="p-desc" placeholder="Deskripsi untuk ditampilkan di katalog..." class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24 font-medium text-sm focus:border-indigo-500 transition-all"></textarea>
+                    <textarea id="p-desc" placeholder="Deskripsi untuk ditampilkan di katalog..." maxlength="280" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none h-24 font-medium text-sm focus:border-indigo-500 transition-all"></textarea>
+                    <div class="mt-2 flex items-center justify-between gap-4">
+                        <p class="text-[11px] text-slate-400">Disimpan sebagai plain text, maksimal 280 karakter, tanpa tag HTML.</p>
+                        <p id="p-desc-counter" class="text-[11px] font-bold text-slate-400">0/280</p>
+                    </div>
                 </div>
                 <div class="flex flex-col sm:flex-row gap-4 pt-4 border-t border-slate-100 mt-4">
                     <button type="button" onclick="closeModal('modal-prod')" class="p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors order-2 sm:order-1">BATAL</button>
@@ -644,7 +1227,7 @@
     </div>
 
     <!-- MODAL PAGE -->
-    <div id="modal-page" class="fixed inset-0 bg-slate-900/70 hidden z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div id="modal-page" class="fixed inset-0 bg-slate-900/70 hidden z-[300] items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-white w-full max-w-5xl rounded-[2.5rem] p-6 md:p-10 shadow-2xl max-h-[95vh] overflow-y-auto custom-scroll relative">
             <button onclick="closeModal('modal-page')" class="absolute top-6 right-6 p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
 
@@ -758,6 +1341,187 @@
             }, 3000);
         }
 
+        function pushAuthTelemetry(entry) {
+            try {
+                const key = 'cepat_auth_telemetry';
+                const prev = JSON.parse(localStorage.getItem(key) || '[]');
+                const arr = Array.isArray(prev) ? prev : [];
+                arr.push({
+                    ts: Date.now(),
+                    page: 'admin-area',
+                    ...entry
+                });
+                while (arr.length > 50) arr.shift();
+                localStorage.setItem(key, JSON.stringify(arr));
+            } catch (e) {}
+        }
+
+        function setUnifiedSession(data) {
+            const role = String((data && data.role) || 'admin').toLowerCase();
+            const name = String((data && data.name) || 'Admin');
+            const email = String((data && data.email) || '');
+            const id = String((data && data.id) || '');
+            const sessionToken = String((data && (data.session_token || data.token)) || '');
+            const demoMode = !!((data && data.demo_mode) || role === 'demo_admin' || (data && data.read_only));
+
+            // Unified session contract
+            sessionStorage.setItem('auth_v1', 'true');
+            sessionStorage.setItem('auth_role', role);
+            sessionStorage.setItem('auth_name', name);
+            if (email) sessionStorage.setItem('auth_email', email);
+            if (id) sessionStorage.setItem('auth_user_id', id);
+            if (sessionToken) sessionStorage.setItem('auth_session_token', sessionToken);
+            else sessionStorage.removeItem('auth_session_token');
+            sessionStorage.removeItem('auth_expires_at');
+            sessionStorage.setItem('auth_demo_mode', demoMode ? 'true' : 'false');
+            sessionStorage.setItem('auth_read_only', demoMode ? 'true' : 'false');
+
+            // Backward compatibility (legacy admin keys)
+            sessionStorage.setItem('adm_v10', 'true');
+            sessionStorage.setItem('adm_name', name);
+        }
+
+        function clearAdminSession() {
+            sessionStorage.removeItem('auth_v1');
+            sessionStorage.removeItem('auth_role');
+            sessionStorage.removeItem('auth_name');
+            sessionStorage.removeItem('auth_email');
+            sessionStorage.removeItem('auth_user_id');
+            sessionStorage.removeItem('auth_session_token');
+            sessionStorage.removeItem('auth_expires_at');
+            sessionStorage.removeItem('auth_demo_mode');
+            sessionStorage.removeItem('auth_read_only');
+            sessionStorage.removeItem('adm_v10');
+            sessionStorage.removeItem('adm_name');
+        }
+
+        function getAdminSessionMeta() {
+            return {
+                role: String(sessionStorage.getItem('auth_role') || '').toLowerCase(),
+                token: String(sessionStorage.getItem('auth_session_token') || ''),
+                demoMode: sessionStorage.getItem('auth_demo_mode') === 'true' || String(sessionStorage.getItem('auth_role') || '').toLowerCase() === 'demo_admin'
+            };
+        }
+
+        function getCurrentAdminRole() {
+            return getAdminSessionMeta().role;
+        }
+
+        function isDemoAdminSession() {
+            return getAdminSessionMeta().demoMode;
+        }
+
+        function isAdminSessionActive() {
+            const session = getAdminSessionMeta();
+            const roleAllowed = session.role === 'admin' || session.role === 'demo_admin';
+            const hasUnifiedSession = sessionStorage.getItem('auth_v1') === 'true' && roleAllowed && !!session.token;
+            return hasUnifiedSession;
+        }
+
+        function isMaskedAdminValue(value) {
+            return typeof value === 'string' && /[•*]/.test(value);
+        }
+
+        function formatAdminNumber(value, suffix = '') {
+            if (isMaskedAdminValue(value)) return String(value) + suffix;
+            return Number(value || 0).toLocaleString('id-ID') + suffix;
+        }
+
+        function formatAdminCurrency(value) {
+            if (isMaskedAdminValue(value)) return 'Rp ' + String(value);
+            return 'Rp ' + Number(value || 0).toLocaleString('id-ID');
+        }
+
+        function showAdminLoginState(message = '') {
+            clearAdminSession();
+            localStorage.removeItem(CACHE_KEY_ADMIN);
+            if (workerMetricsTimer) {
+                clearInterval(workerMetricsTimer);
+                workerMetricsTimer = null;
+            }
+            const adminMain = document.getElementById('admin-main');
+            const loginOverlay = document.getElementById('login-overlay');
+            if (adminMain) adminMain.style.display = 'none';
+            if (loginOverlay) loginOverlay.style.display = 'flex';
+            if (message) showToast(message, 'warning');
+        }
+
+        function ensureAdminSessionActive(showFeedback = true) {
+            if (isAdminSessionActive()) return true;
+            showAdminLoginState(showFeedback ? 'Sesi admin tidak valid. Silakan login ulang.' : '');
+            return false;
+        }
+
+        function buildAdminAuthPayload(payload) {
+            if (!ensureAdminSessionActive(true)) {
+                throw new Error('Sesi admin tidak valid. Silakan login ulang.');
+            }
+            const session = getAdminSessionMeta();
+            return Object.assign({}, payload || {}, {
+                auth_session_token: session.token,
+                auth_role: session.role
+            });
+        }
+
+        function guardDemoAdminAction(actionLabel) {
+            if (!isDemoAdminSession()) return false;
+            showToast(`Mode demo hanya dapat melihat data. Aksi ${actionLabel} dinonaktifkan.`, 'warning');
+            return true;
+        }
+
+        function fillDemoAdminLogin() {
+            document.getElementById('adm-email').value = 'admin@demo.com';
+            document.getElementById('adm-pass').value = 'admindemo';
+        }
+
+        async function readJsonSafe(res) {
+            const text = await res.text();
+            try { return JSON.parse(text); } catch (e) { return null; }
+        }
+
+        function normalizeAdminData(data) {
+            const r = (data && typeof data === 'object') ? data : {};
+            const stats = (r.stats && typeof r.stats === 'object') ? r.stats : {};
+            const settings = (r.settings && typeof r.settings === 'object') ? r.settings : {};
+            const orders = Array.isArray(r.orders) ? r.orders : [];
+            const users = Array.isArray(r.users) ? r.users : [];
+            const products = Array.isArray(r.products) ? r.products : [];
+            const pages = Array.isArray(r.pages) ? r.pages : [];
+            return {
+                status: r.status,
+                message: r.message,
+                role: String(r.role || '').toLowerCase(),
+                demo_mode: !!r.demo_mode,
+                read_only: !!r.read_only,
+                session_expires_at: Number(r.session_expires_at || 0),
+                stats: {
+                    users: isMaskedAdminValue(stats.users) ? stats.users : Number(stats.users || 0),
+                    orders: isMaskedAdminValue(stats.orders) ? stats.orders : Number(stats.orders || 0),
+                    rev: isMaskedAdminValue(stats.rev) ? stats.rev : Number(stats.rev || 0)
+                },
+                settings,
+                orders,
+                users,
+                products,
+                pages,
+                has_more_orders: !!r.has_more_orders,
+                has_more_users: !!r.has_more_users
+            };
+        }
+
+        function getApiEndpoint() {
+            try {
+                if (window.API_URL) return window.API_URL;
+                const host = location.hostname;
+                if (location.protocol === 'file:' || host === 'localhost' || host === '127.0.0.1') {
+                    return (typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : null;
+                }
+                return '/api';
+            } catch (e) {
+                return window.API_URL || ((typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : '/api');
+            }
+        }
+
         function customConfirm(msg) {
             return new Promise((resolve) => {
                 const modal = document.getElementById('modal-confirm');
@@ -793,13 +1557,121 @@
         }
 
         const CACHE_KEY_ADMIN = 'melimpah_admin_data';
-        let IK_PUB = ''; let IK_END = ''; let cachedPages = []; let cachedProducts = [];
+        const PRODUCT_DESC_MAX_LENGTH = 280;
+        let MOOTA_URL = ''; let MOOTA_TOKEN_CONFIGURED = false;
+        let IK_PUB = ''; let IK_END = ''; let IK_PRIVATE_CONFIGURED = false; let cachedPages = []; let cachedProducts = [];
+        let workerMetricsTimer = null;
+        let ADMIN_DEMO_MODE = false;
+
+        function normalizePlainText(value) {
+            return String(value == null ? '' : value)
+                .replace(/\r\n?/g, '\n')
+                .replace(/\u00A0/g, ' ')
+                .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function normalizeProductDescriptionInput(value) {
+            return normalizePlainText(value);
+        }
+
+        function containsHtmlLikeMarkup(value) {
+            return /<\s*\/?\s*[a-z][^>]*>/i.test(String(value == null ? '' : value));
+        }
+
+        function validateProductDescriptionInput(value) {
+            const raw = String(value == null ? '' : value);
+            const normalized = normalizeProductDescriptionInput(raw);
+            const errors = [];
+            if (containsHtmlLikeMarkup(raw)) {
+                errors.push('Deskripsi singkat produk tidak boleh mengandung tag HTML.');
+            }
+            if (normalized.length > PRODUCT_DESC_MAX_LENGTH) {
+                errors.push(`Deskripsi singkat produk maksimal ${PRODUCT_DESC_MAX_LENGTH} karakter.`);
+            }
+            return { value: normalized, errors };
+        }
+
+        function updateProductDescriptionCounter(value) {
+            const counter = document.getElementById('p-desc-counter');
+            if (!counter) return;
+            const length = normalizeProductDescriptionInput(value).length;
+            counter.textContent = `${length}/${PRODUCT_DESC_MAX_LENGTH}`;
+            counter.className = `text-[11px] font-bold ${length > PRODUCT_DESC_MAX_LENGTH ? 'text-red-500' : 'text-slate-400'}`;
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         function toggleSidebar() {
             const sb = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebar-overlay');
             sb.classList.toggle('open');
             overlay.classList.toggle('open');
+        }
+
+        function applyDemoModeUI() {
+            const isDemo = !!ADMIN_DEMO_MODE;
+            const selectors = [
+                'button[onclick="openProdModal()"]',
+                'button[onclick="openPageModal()"]',
+                'button[onclick="uploadMedia()"]',
+                'button[onclick="triggerPurgeCache()"]',
+                'button[onclick="testMootaConnection()"]',
+                'button[onclick="testImageKitConnection()"]',
+                '#form-prod button[type="submit"]',
+                '#form-page button[type="submit"]',
+                '#form-branding button[type="submit"]',
+                '#form-sys button[type="submit"]',
+                '#form-cf button[type="submit"]'
+            ];
+            selectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    el.disabled = isDemo;
+                    el.classList.toggle('cursor-not-allowed', isDemo);
+                    el.classList.toggle('opacity-60', isDemo);
+                });
+            });
+
+            const inputSelectors = [
+                '#form-branding input',
+                '#form-branding textarea',
+                '#form-branding select',
+                '#form-sys input',
+                '#form-sys textarea',
+                '#form-sys select',
+                '#form-cf input',
+                '#form-prod input',
+                '#form-prod textarea',
+                '#form-prod select',
+                '#form-page input',
+                '#form-page textarea',
+                '#form-page select'
+            ];
+            inputSelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    if (!el) return;
+                    const tagName = String(el.tagName || '').toLowerCase();
+                    const type = String(el.getAttribute('type') || '').toLowerCase();
+                    const shouldDisable = tagName === 'select' || type === 'radio' || type === 'checkbox' || type === 'file';
+                    if (isDemo) {
+                        if (shouldDisable) el.disabled = true;
+                        else el.setAttribute('readonly', 'readonly');
+                        el.classList.add('bg-slate-100', 'cursor-not-allowed');
+                    } else if (!el.hasAttribute('data-keep-readonly')) {
+                        el.disabled = false;
+                        el.removeAttribute('readonly');
+                        el.classList.remove('bg-slate-100', 'cursor-not-allowed');
+                    }
+                });
+            });
         }
 
         function togglePass() {
@@ -809,31 +1681,135 @@
             lucide.createIcons();
         }
 
+        async function loginRequest(endpoint, payload) {
+            const ep = String(endpoint || '');
+            // Penting: jangan paksa Content-Type application/json untuk fallback ke GAS
+            // agar tidak memicu preflight CORS yang bisa gagal di script.google.com.
+            const isGAS = ep.indexOf('script.google.com/macros/') !== -1;
+            const requestId = 'adm_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+            const reqInit = {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            };
+            if (!isGAS) {
+                reqInit.headers = {
+                    'Content-Type': 'application/json',
+                    'X-Request-Id': requestId
+                };
+            }
+            const startedAt = Date.now();
+            const res = await fetch(endpoint, reqInit);
+
+            const rawText = await res.text();
+            let parsed = null;
+            try { parsed = JSON.parse(rawText); } catch (_) {}
+
+            // Selalu lempar error jika format tidak valid agar bisa fallback endpoint
+            if (!parsed || typeof parsed !== 'object') {
+                const safePreview = String(rawText || '')
+                    .replace(/[^\x20-\x7E]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .slice(0, 180);
+                const err = new Error(`Invalid response dari ${endpoint} (HTTP ${res.status}) ${safePreview ? '- ' + safePreview : ''}`);
+                err.code = 'INVALID_RESPONSE';
+                err.httpStatus = res.status;
+                err.telemetry = {
+                    endpoint,
+                    requestId,
+                    durationMs: Date.now() - startedAt,
+                    httpStatus: res.status,
+                    parseOk: false,
+                    apiContract: res.headers.get('X-Api-Contract') || '',
+                    contentType: res.headers.get('Content-Type') || '',
+                    contentEncoding: res.headers.get('Content-Encoding') || ''
+                };
+                throw err;
+            }
+
+            return {
+                data: parsed,
+                telemetry: {
+                    endpoint,
+                    requestId,
+                    durationMs: Date.now() - startedAt,
+                    httpStatus: res.status,
+                    parseOk: true,
+                    apiContract: res.headers.get('X-Api-Contract') || '',
+                    contentType: res.headers.get('Content-Type') || '',
+                    contentEncoding: res.headers.get('Content-Encoding') || ''
+                }
+            };
+        }
+
         document.getElementById('form-login').onsubmit = async (e) => { 
             e.preventDefault(); 
             const btn = document.getElementById('btn-login'); const oriText = btn.innerHTML;
             btn.innerHTML = '<i data-lucide="loader" class="w-5 h-5 animate-spin mx-auto"></i>'; 
             btn.disabled = true; lucide.createIcons();
             try { 
-                if(typeof SCRIPT_URL === 'undefined') throw new Error("Config.js tidak terpanggil!");
-                const res = await fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'admin_login', email: document.getElementById('adm-email').value, password: document.getElementById('adm-pass').value })}); 
-                const r = await res.json(); 
+                const payload = { action: 'admin_login', email: document.getElementById('adm-email').value, password: document.getElementById('adm-pass').value };
+
+                const primaryEndpoint = getApiEndpoint();
+                const scriptFallback = (typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : null;
+                const endpoints = [primaryEndpoint, scriptFallback]
+                    .filter(Boolean)
+                    .filter((v, i, arr) => arr.indexOf(v) === i);
+
+                if (!endpoints.length) throw new Error("Config.js tidak terpanggil!");
+
+                let r = null;
+                let lastErr = null;
+                for (const endpoint of endpoints) {
+                    try {
+                        const out = await loginRequest(endpoint, payload);
+                        r = out.data;
+                        pushAuthTelemetry({
+                            stage: 'login_attempt',
+                            outcome: 'success-response',
+                            ...out.telemetry
+                        });
+                        break;
+                    } catch (err) {
+                        lastErr = err;
+                        pushAuthTelemetry({
+                            stage: 'login_attempt',
+                            outcome: 'error-response',
+                            endpoint,
+                            message: String(err && err.message ? err.message : err),
+                            ...(err && err.telemetry ? err.telemetry : {})
+                        });
+                        // Coba endpoint berikutnya (mis. /api gagal parse, fallback ke SCRIPT_URL)
+                    }
+                }
+
+                if (!r) throw (lastErr || new Error('Gagal terhubung ke server login.'));
+
                 if(r.status === 'success') { 
-                    sessionStorage.setItem('adm_v10', 'true'); 
-                    sessionStorage.setItem('adm_name', r.data.nama); 
-                    showToast('Berhasil Login!', 'success');
+                    const info = r.data && typeof r.data === 'object' ? r.data : {};
+                    const nama = info.nama || '';
+                    localStorage.removeItem(CACHE_KEY_ADMIN);
+                    setUnifiedSession({
+                        id: String(info.id || ''),
+                        role: String(info.role || 'admin'),
+                        name: String(nama || 'Admin'),
+                        email: String(info.email || document.getElementById('adm-email').value || ''),
+                        session_token: String(info.session_token || ''),
+                        expires_at: Number(info.expires_at || 0),
+                        demo_mode: !!info.demo_mode,
+                        read_only: !!info.read_only
+                    });
+                    showToast(info.demo_mode ? 'Berhasil masuk ke mode demo admin.' : 'Berhasil Login!', info.demo_mode ? 'warning' : 'success');
                     init(); 
-                } 
-                else { 
-                    showToast(r.message, 'error'); 
-                    btn.innerHTML = oriText; 
-                    btn.disabled = false; 
+                } else { 
+                    showToast(String(r.message || 'Email atau password salah'), 'error'); 
                 } 
             } catch (err) { 
-                showToast('Error Koneksi!', 'error'); 
+                showToast(String((err && err.message) ? err.message : 'Error Koneksi!'), 'error'); 
+            } finally {
                 btn.innerHTML = oriText; 
                 btn.disabled = false; 
-            } 
+                lucide.createIcons();
+            }
         };
 
         let currentOrderPage = 1;
@@ -863,6 +1839,7 @@
 
         function renderOrders(orders, append = false) {
             const list = document.getElementById('list-orders');
+            const isDemo = !!ADMIN_DEMO_MODE;
             const html = orders.map(o => `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-8 py-5 font-mono font-bold text-indigo-600 text-xs">${o[0]}</td>
@@ -872,13 +1849,18 @@
                     </td>
                     <td class="px-8 py-5 font-medium text-slate-600 truncate max-w-[200px] text-xs">${o[5]}</td>
                     <td class="px-8 py-5">
-                        <span class="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${o[7]==='Lunas'?'bg-emerald-100 text-emerald-600':'bg-amber-100 text-amber-600'}">
+                        <span class="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${!isDemo && o[7]==='Lunas'?'bg-emerald-100 text-emerald-600':'bg-slate-100 text-slate-500'}">
                             ${o[7]}
                         </span>
                     </td>
                     <td class="px-8 py-5 text-right">
-                        ${o[7]==='Pending'?`<button onclick="setLunas('${o[0]}')" class="text-indigo-600 font-bold uppercase text-[10px] hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">Aktifkan</button>`:
-                          (o[7]==='Lunas'?`<button onclick="setPending('${o[0]}')" class="text-red-600 font-bold uppercase text-[10px] hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors">Non Aktifkan</button>`:'-')}
+                        ${isDemo
+                            ? `<span class="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">Demo Read Only</span>`
+                            : (o[7]==='Pending'
+                                ? `<button onclick="setLunas('${o[0]}')" class="text-indigo-600 font-bold uppercase text-[10px] hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">Aktifkan</button>`
+                                : (o[7]==='Lunas'
+                                    ? `<button onclick="setPending('${o[0]}')" class="text-red-600 font-bold uppercase text-[10px] hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors">Non Aktifkan</button>`
+                                    : '-'))}
                     </td>
                 </tr>`).join('');
             
@@ -892,9 +1874,12 @@
             btn.innerText = 'Loading...'; btn.disabled = true;
             try {
                 currentOrderPage++;
-                const res = await fetch(SCRIPT_URL, { 
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, { 
                     method: 'POST', 
-                    body: JSON.stringify({ action: 'get_admin_orders', page: currentOrderPage, limit: 20 }) 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'get_admin_orders', page: currentOrderPage, limit: 20 })) 
                 });
                 const r = await res.json();
                 if(r.status === 'success') {
@@ -911,9 +1896,12 @@
             btn.innerText = 'Loading...'; btn.disabled = true;
             try {
                 currentUserPage++;
-                const res = await fetch(SCRIPT_URL, { 
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, { 
                     method: 'POST', 
-                    body: JSON.stringify({ action: 'get_admin_users', page: currentUserPage, limit: 20 }) 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'get_admin_users', page: currentUserPage, limit: 20 })) 
                 });
                 const r = await res.json();
                 if(r.status === 'success') {
@@ -925,6 +1913,8 @@
         }
 
         function renderAdminUI(r) {
+            r = normalizeAdminData(r);
+            ADMIN_DEMO_MODE = !!r.demo_mode || isDemoAdminSession();
             currentOrderPage = 1;
             currentUserPage = 1;
             renderMembers(r.users || []);
@@ -934,30 +1924,38 @@
             document.getElementById('more-members-container').classList.toggle('hidden', !r.has_more_users);
 
             cachedPages = r.pages || []; cachedProducts = r.products || [];
-            document.getElementById('stat-orders').innerText = (r.stats.orders || 0) + ' Transaksi'; document.getElementById('stat-rev').innerText = 'Rp ' + Number(r.stats.rev || 0).toLocaleString('id-ID');
+            document.getElementById('stat-orders').innerText = formatAdminNumber(r.stats.orders, ' Transaksi');
+            document.getElementById('stat-rev').innerText = formatAdminCurrency(r.stats.rev);
             
-            document.getElementById('count-prod').innerText = cachedProducts.length; 
+            document.getElementById('count-prod').innerText = ADMIN_DEMO_MODE ? '•••' : cachedProducts.length; 
 
             document.getElementById('list-products').innerHTML = [...cachedProducts].reverse().map(p => {
+                const isDemo = !!ADMIN_DEMO_MODE;
                 const isAct = String(p[5]).trim() === 'Active';
                 const stCls = isAct ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200';
+                const displayPrice = isMaskedAdminValue(p[4]) ? p[4] : Number(p[4] || 0).toLocaleString('id-ID');
+                const productImage = isDemo ? '' : (p[7] || '');
+                const safeProductId = escapeHtml(normalizePlainText(p[0]) || '-');
+                const safeProductStatus = escapeHtml(normalizePlainText(p[5]) || '-');
+                const safeProductTitle = escapeHtml(normalizePlainText(p[1]) || '-');
+                const safeProductDesc = escapeHtml(normalizeProductDescriptionInput(p[2]) || '-');
                 return `
                 <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
                     <div class="flex justify-between items-start mb-6">
                         <div class="flex flex-col gap-2">
-                            <span class="text-[10px] font-bold bg-slate-50 text-slate-400 px-3 py-1.5 rounded-full uppercase tracking-wider w-fit group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">${p[0]}</span>
+                            <span class="text-[10px] font-bold bg-slate-50 text-slate-400 px-3 py-1.5 rounded-full uppercase tracking-wider w-fit group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">${safeProductId}</span>
                             <span class="text-[10px] font-bold ${stCls} px-3 py-1.5 rounded-full uppercase tracking-wider border w-fit flex items-center gap-1">
-                                <i data-lucide="${isAct ? 'check-circle-2' : 'minus-circle'}" class="w-3 h-3"></i> ${p[5]}
+                                <i data-lucide="${isAct ? 'check-circle-2' : 'minus-circle'}" class="w-3 h-3"></i> ${safeProductStatus}
                             </span>
                         </div>
-                        <span class="text-sm font-bold text-slate-800">Rp ${Number(p[4]).toLocaleString('id-ID')}</span>
+                        <span class="text-sm font-bold text-slate-800">${isMaskedAdminValue(p[4]) ? displayPrice : ('Rp ' + displayPrice)}</span>
                     </div>
-                    ${p[7] ? `<div class="w-full aspect-square rounded-2xl overflow-hidden mb-4 border border-slate-100"><img src="${p[7]}" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" onerror="this.style.display='none'"></div>` : ''}
-                    <h4 class="font-bold text-slate-800 text-lg mb-2 leading-snug">${p[1]}</h4>
-                    <p class="text-xs text-slate-400 line-clamp-2 mb-6 font-medium leading-relaxed">${p[2]||'-'}</p>
+                    ${productImage ? `<div class="w-full aspect-square rounded-2xl overflow-hidden mb-4 border border-slate-100"><img src="${productImage}" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" onerror="this.style.display='none'" loading="lazy" decoding="async"></div>` : ''}
+                    <h4 class="font-bold text-slate-800 text-lg mb-2 leading-snug">${safeProductTitle}</h4>
+                    <p class="text-xs text-slate-400 line-clamp-2 mb-6 font-medium leading-relaxed">${safeProductDesc}</p>
                     <div class="flex gap-2">
-                        <button onclick="editProd('${p[0]}')" class="flex-1 bg-slate-50 text-slate-500 hover:bg-indigo-600 hover:text-white py-3.5 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all">Edit Produk</button>
-                        <button onclick="deleteProd('${p[0]}', '${p[1].replace(/'/g, "\\'")}')" class="bg-red-50 text-red-500 hover:bg-red-600 hover:text-white px-4 py-3.5 rounded-xl font-bold transition-all" title="Hapus Produk"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        <button ${isDemo ? 'disabled' : ''} onclick="editProd('${p[0]}')" class="flex-1 ${isDemo ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 text-slate-500 hover:bg-indigo-600 hover:text-white'} py-3.5 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all">Edit Produk</button>
+                        <button ${isDemo ? 'disabled' : ''} onclick="deleteProd('${p[0]}', '${String(p[1] || '').replace(/'/g, "\\'")}')" class="${isDemo ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-50 text-red-500 hover:bg-red-600 hover:text-white'} px-4 py-3.5 rounded-xl font-bold transition-all" title="${isDemo ? 'Mode Demo' : 'Hapus Produk'}"><i data-lucide="${isDemo ? 'ban' : 'trash-2'}" class="w-4 h-4"></i></button>
                     </div>
                 </div>`;
             }).join('');
@@ -966,13 +1964,15 @@
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-8 py-5 font-bold text-slate-800 truncate text-sm">${p[2]}</td>
                     <td class="px-8 py-5">
-                        <a href="p.html?s=${p[1]}" target="_blank" class="font-mono text-indigo-600 hover:underline text-xs bg-indigo-50 px-2 py-1 rounded">/p.html?s=${p[1]}</a>
+                        ${ADMIN_DEMO_MODE
+                            ? `<span class="font-mono text-slate-400 text-xs bg-slate-100 px-2 py-1 rounded inline-block">${p[1]}</span>`
+                            : `<a href="p.html?s=${p[1]}" target="_blank" class="font-mono text-indigo-600 hover:underline text-xs bg-indigo-50 px-2 py-1 rounded">/p.html?s=${p[1]}</a>`}
                     </td>
                     <td class="px-8 py-5 text-right">
                         <div class="flex items-center justify-end gap-2">
-                            <button onclick="downloadPageHTML('${p[0]}')" class="bg-white border border-slate-200 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-colors p-2 rounded-xl" title="Download HTML"><i data-lucide="download" class="w-4 h-4"></i></button>
-                            <button onclick="editPage('${p[0]}')" class="bg-white border border-slate-200 text-slate-500 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-colors px-4 py-2 rounded-xl font-bold text-xs">Edit</button>
-                            <button onclick="deletePage('${p[0]}', '${p[2].replace(/'/g, "\\'")}')" class="bg-red-50 text-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded-xl font-bold transition-all" title="Hapus Halaman"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            <button ${ADMIN_DEMO_MODE ? 'disabled' : ''} onclick="downloadPageHTML('${p[0]}')" class="${ADMIN_DEMO_MODE ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border border-slate-200 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200'} transition-colors p-2 rounded-xl" title="${ADMIN_DEMO_MODE ? 'Mode Demo' : 'Download HTML'}"><i data-lucide="${ADMIN_DEMO_MODE ? 'ban' : 'download'}" class="w-4 h-4"></i></button>
+                            <button ${ADMIN_DEMO_MODE ? 'disabled' : ''} onclick="editPage('${p[0]}')" class="${ADMIN_DEMO_MODE ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border border-slate-200 text-slate-500 hover:bg-indigo-600 hover:text-white hover:border-indigo-600'} transition-colors px-4 py-2 rounded-xl font-bold text-xs">Edit</button>
+                            <button ${ADMIN_DEMO_MODE ? 'disabled' : ''} onclick="deletePage('${p[0]}', '${String(p[2] || '').replace(/'/g, "\\'")}')" class="${ADMIN_DEMO_MODE ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-50 text-red-500 hover:bg-red-600 hover:text-white'} px-4 py-2 rounded-xl font-bold transition-all" title="${ADMIN_DEMO_MODE ? 'Mode Demo' : 'Hapus Halaman'}"><i data-lucide="${ADMIN_DEMO_MODE ? 'ban' : 'trash-2'}" class="w-4 h-4"></i></button>
                         </div>
                     </td>
                 </tr>`).join('');
@@ -985,48 +1985,77 @@
 
             document.getElementById('set-email').value = r.settings.contact_email || ''; 
             document.getElementById('set-fonnte').value = r.settings.fonnte_token || ''; 
+            document.getElementById('set-moota-url').value = MOOTA_URL = r.settings.moota_gas_url || '';
+            document.getElementById('set-moota-token').value = '';
+            updateMootaHints(!!r.settings.moota_token_configured);
+            document.getElementById('moota-test-status').classList.add('hidden');
             document.getElementById('set-ik-pub').value = IK_PUB = r.settings.ik_public_key || ''; 
             document.getElementById('set-ik-end').value = IK_END = r.settings.ik_endpoint || ''; 
+            document.getElementById('set-ik-priv').value = '';
+            updateImageKitPrivateHint(!!r.settings.ik_private_key_configured);
+            document.getElementById('ik-test-status').classList.add('hidden');
             document.getElementById('set-cf-zone').value = r.settings.cf_zone_id || ''; 
             document.getElementById('set-cf-token').value = r.settings.cf_api_token || '';
+            if (!ADMIN_DEMO_MODE && window.__CEPAT_GLOBAL_SETTINGS__ && typeof window.__CEPAT_GLOBAL_SETTINGS__.sync === 'function') {
+                window.__CEPAT_GLOBAL_SETTINGS__.sync({
+                    site_name: r.settings.site_name || '',
+                    site_tagline: r.settings.site_tagline || '',
+                    site_logo: r.settings.site_logo || '',
+                    site_favicon: r.settings.site_favicon || ''
+                }, Date.now());
+            }
+            document.getElementById('admin-role-note').innerText = ADMIN_DEMO_MODE ? 'Demo Read Only' : 'Master Control';
+            document.getElementById('demo-mode-banner').classList.toggle('hidden', !ADMIN_DEMO_MODE);
+            sessionStorage.setItem('auth_demo_mode', ADMIN_DEMO_MODE ? 'true' : 'false');
+            sessionStorage.setItem('auth_read_only', ADMIN_DEMO_MODE ? 'true' : 'false');
+            renderClientFetchStats();
+            applyDemoModeUI();
             lucide.createIcons();
         }
 
         async function init() {
-            if(!sessionStorage.getItem('adm_v10')) return;
+            if(!isAdminSessionActive()) return;
             document.getElementById('login-overlay').style.display = 'none'; 
             document.getElementById('admin-main').style.display = 'flex'; 
-            document.getElementById('admin-name').innerText = sessionStorage.getItem('adm_name');
+            document.getElementById('admin-name').innerText = sessionStorage.getItem('auth_name') || sessionStorage.getItem('adm_name') || 'Admin';
+            if (!isDemoAdminSession()) ensureWorkerMetricsPolling();
             
             const cachedDataStr = localStorage.getItem(CACHE_KEY_ADMIN); 
             const syncLabel = document.getElementById('sync-status');
             
             if (cachedDataStr) { 
                 try {
-                    renderAdminUI(JSON.parse(cachedDataStr)); 
-                } catch(e) { console.error(e); }
+                    const parsed = JSON.parse(cachedDataStr);
+                    const normalized = normalizeAdminData(parsed);
+                    const looksValid = normalized && typeof normalized === 'object' && normalized.settings && typeof normalized.settings === 'object';
+                    if (looksValid) renderAdminUI(normalized);
+                    else localStorage.removeItem(CACHE_KEY_ADMIN);
+                } catch(e) { localStorage.removeItem(CACHE_KEY_ADMIN); }
                 // Show syncing indicator initially if we have cache, 
                 // but we'll hide it in finally block
                 syncLabel.classList.remove('hidden');
             }
             
             try { 
-                if(typeof SCRIPT_URL === 'undefined') return;
+                const endpoint = getApiEndpoint();
+                if(!endpoint) return;
                 
                 // Add timeout for better UX
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-                const res = await fetch(SCRIPT_URL, { 
+                const res = await fetch(endpoint, { 
                     method: 'POST', 
-                    body: JSON.stringify({ action: 'get_admin_data' }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'get_admin_data' })),
                     signal: controller.signal
                 }); 
                 clearTimeout(timeoutId);
 
-                const r = await res.json(); 
+                const raw = await readJsonSafe(res);
+                const r = normalizeAdminData(raw);
                 if(r.status === 'success') { 
-                    const freshDataStr = JSON.stringify(r);
+                    const freshDataStr = JSON.stringify(raw);
                     if(cachedDataStr !== freshDataStr) {
                         localStorage.setItem(CACHE_KEY_ADMIN, freshDataStr); 
                         renderAdminUI(r); 
@@ -1041,6 +2070,7 @@
         }
 
         function forceSync() { 
+            if (!ensureAdminSessionActive(true)) return;
             localStorage.removeItem(CACHE_KEY_ADMIN); 
             document.getElementById('sync-status').classList.remove('hidden'); 
             document.getElementById('sync-status').innerText = 'Refreshing...'; 
@@ -1048,6 +2078,7 @@
         }
 
         async function triggerPurgeCache() {
+            if (guardDemoAdminAction('purge cache')) return;
             const btn = document.getElementById('btn-purge'); const oriText = btn.innerHTML;
             const zoneId = document.getElementById('set-cf-zone').value.trim();
             const apiToken = document.getElementById('set-cf-token').value.trim();
@@ -1059,14 +2090,17 @@
 
             btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> PROSES...'; btn.disabled = true; lucide.createIcons();
             try { 
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
                 // Kirim credentials juga di payload untuk memastikan data terbaru yang dipakai
-                const res = await fetch(SCRIPT_URL, { 
+                const res = await fetch(endpoint, { 
                     method: 'POST', 
-                    body: JSON.stringify({ 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ 
                         action: 'purge_cf_cache',
                         cf_zone_id: zoneId,
                         cf_api_token: apiToken
-                    }) 
+                    })) 
                 }); 
                 const r = await res.json(); 
                 showToast(r.message, r.status === 'success' ? 'success' : 'error'); 
@@ -1077,6 +2111,7 @@
         }
 
         function downloadPageHTML(id = null) {
+            if (guardDemoAdminAction('mengunduh halaman')) return;
             let content = '', filename = 'landing-page.html';
             let pixelId = '', pixelToken = '', pixelTest = '';
             
@@ -1138,6 +2173,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
 
         function editProd(id) { 
+            if (guardDemoAdminAction('mengedit produk')) return;
             const p = cachedProducts.find(x => x[0] === id); 
             if(!p) return; 
             
@@ -1148,7 +2184,8 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             idInput.classList.remove('bg-slate-50', 'text-slate-700');
 
             document.getElementById('p-title').value = p[1]; 
-            document.getElementById('p-desc').value = p[2]; 
+            document.getElementById('p-desc').value = normalizeProductDescriptionInput(p[2]); 
+            updateProductDescriptionCounter(document.getElementById('p-desc').value);
             document.getElementById('p-url').value = p[3]; 
             document.getElementById('p-harga').value = p[4]; 
             document.getElementById('p-commission').value = p[11] || 0;
@@ -1163,21 +2200,26 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             document.getElementById('p-pixel-test').value = p[10] || '';
 
             document.getElementById('p-is-edit').value = 'true'; 
-            document.getElementById('modal-prod').classList.remove('hidden'); 
+            (function(m){ m.classList.remove('hidden'); m.classList.add('flex'); })(document.getElementById('modal-prod')); 
         }
 
         async function deleteProd(id, name) {
+            if (guardDemoAdminAction('menghapus produk')) return;
             const confirmed = await customConfirm(`Hapus produk "${name}"? Tindakan ini tidak dapat dibatalkan.`);
             if(!confirmed) return;
 
             showToast('Menghapus produk...', 'warning');
             try {
-                const res = await fetch(SCRIPT_URL, {
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, {
                     method: 'POST',
-                    body: JSON.stringify({ action: 'delete_product', id: id })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'delete_product', id: id }))
                 });
                 const r = await res.json();
                 if(r.status === 'success') {
+                    syncPublicCacheStateFromPayload(r);
                     showToast('Produk berhasil dihapus!', 'success');
                     forceSync();
                 } else {
@@ -1189,17 +2231,22 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
 
         async function deletePage(id, name) {
+            if (guardDemoAdminAction('menghapus halaman')) return;
             const confirmed = await customConfirm(`Hapus halaman "${name}"? Tindakan ini tidak dapat dibatalkan.`);
             if(!confirmed) return;
 
             showToast('Menghapus halaman...', 'warning');
             try {
-                const res = await fetch(SCRIPT_URL, {
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, {
                     method: 'POST',
-                    body: JSON.stringify({ action: 'delete_page', id: id })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'delete_page', id: id }))
                 });
                 const r = await res.json();
                 if(r.status === 'success') {
+                    syncPublicCacheStateFromPayload(r);
                     showToast('Halaman berhasil dihapus!', 'success');
                     forceSync();
                 } else {
@@ -1211,6 +2258,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
 
         function editPage(id) { 
+            if (guardDemoAdminAction('mengedit halaman')) return;
             const p = cachedPages.find(x => x[0] === id); 
             if(!p) return; 
             document.getElementById('pg-id').value = p[0]; 
@@ -1229,13 +2277,20 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         
         async function loadMediaFiles() {
             const gallery = document.getElementById('media-gallery');
+            if (isDemoAdminSession()) {
+                gallery.innerHTML = '<div class="col-span-full rounded-2xl border border-amber-200 bg-amber-50 px-6 py-8 text-center text-sm text-amber-700">Mode demo menyembunyikan daftar file media. Upload dan preview URL dinonaktifkan.</div>';
+                return;
+            }
             gallery.innerHTML = '<div class="col-span-full text-center py-10 text-slate-400 text-sm italic"><i data-lucide="loader" class="w-6 h-6 animate-spin mx-auto mb-2"></i>Loading media...</div>';
             lucide.createIcons();
 
             try {
-                const res = await fetch(SCRIPT_URL, {
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, {
                     method: 'POST',
-                    body: JSON.stringify({ action: 'get_media_files' })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'get_media_files' }))
                 });
                 const r = await res.json();
 
@@ -1259,11 +2314,13 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                         </div>
                     `).join('');
                     lucide.createIcons();
-                } else {
+                } else if (r.status === 'success') {
                     gallery.innerHTML = '<div class="col-span-full text-center py-10 text-slate-400 text-sm italic">Belum ada file yang diupload.</div>';
+                } else {
+                    gallery.innerHTML = `<div class="col-span-full text-center py-10 text-red-500 text-sm italic">${r.message || 'Gagal memuat data media.'}</div>`;
                 }
             } catch(e) {
-                gallery.innerHTML = '<div class="col-span-full text-center py-10 text-red-400 text-sm italic">Gagal memuat data.</div>';
+                gallery.innerHTML = `<div class="col-span-full text-center py-10 text-red-400 text-sm italic">Gagal memuat data: ${e.message || e.toString()}</div>`;
             }
         }
 
@@ -1272,22 +2329,31 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
         
         async function uploadMedia() { 
+            if (guardDemoAdminAction('upload media')) return;
             const fileIn = document.getElementById('media-file'); const btn = document.getElementById('btn-upload'); 
             if(!fileIn.files[0]) return showToast('Pilih file yang ingin diupload!', 'warning'); 
+            if(!IK_PUB || !IK_END) return showToast('Konfigurasi ImageKit belum lengkap. Isi public key dan URL endpoint di Pengaturan Sistem.', 'warning');
             btn.disabled=true; btn.innerText='IZIN...'; 
             try { 
-                const authRes = await fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'get_ik_auth' }) }); 
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const authRes = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildAdminAuthPayload({ action: 'get_ik_auth' })) }); 
                 const auth = await authRes.json(); 
                 if(auth.status !== 'success') throw new Error(auth.message); 
                 btn.innerText = 'UPLOADING...'; 
                 const fd = new FormData(); fd.append('file', fileIn.files[0]); fd.append('fileName', fileIn.files[0].name); fd.append('publicKey', IK_PUB); fd.append('signature', auth.signature); fd.append('expire', auth.expire); fd.append('token', auth.token); 
                 const ikRes = await fetch('https://upload.imagekit.io/api/v1/files/upload', { method: 'POST', body: fd }); 
                 const r = await ikRes.json(); 
+                if(!ikRes.ok) {
+                    throw new Error(r.message || r.error || ('Upload ditolak ImageKit (HTTP ' + ikRes.status + ')'));
+                }
                 if(r.url) { 
                     document.getElementById('media-res-box').classList.remove('hidden'); 
                     document.getElementById('media-url-res').value = r.url; 
                     showToast('Upload Sukses!', 'success'); 
                     loadMediaFiles();
+                } else {
+                    throw new Error(r.message || 'Upload gagal. URL file tidak diterima dari ImageKit.');
                 } 
             } catch (err) { 
                 showToast('Upload Gagal: ' + err.message, 'error'); 
@@ -1296,6 +2362,140 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
 
         function copyLink() { const c = document.getElementById('media-url-res'); c.select(); document.execCommand('copy'); showToast('Berhasil dicopy!', 'success'); }
+
+        function renderUsageBars(items, emptyMessage) {
+            const list = Array.isArray(items) ? items : [];
+            if (!list.length) return `<p class="text-slate-400 italic">${emptyMessage}</p>`;
+            const max = Math.max(...list.map(item => Number(item.count || 0)), 1);
+            return list.map(item => {
+                const count = Number(item.count || 0);
+                const width = Math.max(6, Math.round((count / max) * 100));
+                const label = item.bucket || item.path || item.action || '-';
+                return `
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="font-mono text-[11px] text-slate-500 truncate">${label}</span>
+                            <span class="font-bold text-slate-700">${count.toLocaleString('id-ID')}</span>
+                        </div>
+                        <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+                            <div class="h-full rounded-full bg-indigo-500" style="width:${width}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderClientFetchStats() {
+            const box = document.getElementById('client-fetch-stats');
+            if (!box) return;
+            const stats = (window.__CEPAT_GET_FETCH_STATS__ && typeof window.__CEPAT_GET_FETCH_STATS__ === 'function')
+                ? window.__CEPAT_GET_FETCH_STATS__()
+                : null;
+            if (!stats) {
+                box.innerHTML = '<p class="text-slate-400 italic">Client fetch stats belum tersedia.</p>';
+                return;
+            }
+            box.innerHTML = `
+                <div class="rounded-xl bg-white border border-indigo-100 p-4">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Network Hits</p>
+                    <p class="text-2xl font-bold text-slate-800 mt-2">${Number(stats.network_requests || 0).toLocaleString('id-ID')}</p>
+                </div>
+                <div class="rounded-xl bg-white border border-indigo-100 p-4">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Saved Requests</p>
+                    <p class="text-2xl font-bold text-emerald-600 mt-2">${Number(stats.saved_requests || 0).toLocaleString('id-ID')}</p>
+                    <p class="text-[11px] text-slate-500 mt-2">Memory + session/local storage hits + dedupe</p>
+                </div>
+                <div class="rounded-xl bg-white border border-indigo-100 p-4">
+                    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Cache Breakdown</p>
+                    <p class="text-sm font-medium text-slate-700 mt-2">Memory: ${Number(stats.memory_cache_hits || 0).toLocaleString('id-ID')}</p>
+                    <p class="text-sm font-medium text-slate-700">Storage: ${Number(stats.storage_cache_hits || 0).toLocaleString('id-ID')}</p>
+                    <p class="text-sm font-medium text-slate-700">Deduped: ${Number(stats.deduped_requests || 0).toLocaleString('id-ID')}</p>
+                </div>
+            `;
+        }
+
+        function renderWorkerBudgetMetrics(payload) {
+            const data = payload && payload.data ? payload.data : {};
+            const budget = data.budget || {};
+            const alerts = Array.isArray(budget.alerts) ? budget.alerts : [];
+            const cacheSummary = data.cache_summary || {};
+            const circuit = data.circuit_breaker || {};
+
+            document.getElementById('worker-day-requests').innerText = Number(budget.current_day_requests || 0).toLocaleString('id-ID');
+            document.getElementById('worker-day-percent').innerText = `${Number(budget.daily_percent || 0).toLocaleString('id-ID')}% dari limit ${Number(budget.daily_limit || 0).toLocaleString('id-ID')}/hari`;
+            document.getElementById('worker-hour-requests').innerText = Number(budget.current_hour_requests || 0).toLocaleString('id-ID');
+            document.getElementById('worker-cache-ratio').innerText = `${Number(cacheSummary.hit_ratio_percent || 0).toLocaleString('id-ID')}%`;
+            document.getElementById('worker-saved-requests').innerText = `Estimasi request dihemat: ${Number(data.estimated_saved_requests || 0).toLocaleString('id-ID')}`;
+            document.getElementById('worker-circuit-state').innerText = circuit.is_open ? 'OPEN' : 'CLOSED';
+            document.getElementById('worker-circuit-state').className = `text-3xl font-bold mt-2 ${circuit.is_open ? 'text-red-600' : 'text-emerald-600'}`;
+            document.getElementById('worker-circuit-detail').innerText = circuit.is_open
+                ? `Retry setelah ${circuit.opened_until ? new Date(circuit.opened_until).toLocaleTimeString('id-ID') : '-'}`
+                : `Failure streak: ${Number(circuit.consecutive_failures || 0).toLocaleString('id-ID')}`;
+
+            const alertBox = document.getElementById('worker-budget-alert');
+            if (!alerts.length) {
+                alertBox.className = 'hidden rounded-2xl border px-4 py-3 text-xs font-medium mb-6';
+            } else {
+                const hasCritical = alerts.some(item => item.level === 'critical');
+                alertBox.className = `rounded-2xl border px-4 py-3 text-xs font-medium mb-6 ${hasCritical ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`;
+                alertBox.innerText = alerts.map(item => item.message).join(' ');
+            }
+
+            document.getElementById('worker-hourly-series').innerHTML = renderUsageBars((budget.hourly_series || []).slice(-8), 'Belum ada data per jam.');
+            document.getElementById('worker-daily-series').innerHTML = renderUsageBars((budget.daily_series || []).slice(-7), 'Belum ada data harian.');
+            document.getElementById('worker-top-paths').innerHTML = renderUsageBars((data.top_paths || []).slice(0, 8), 'Belum ada data path.');
+            document.getElementById('worker-top-actions').innerHTML = renderUsageBars((data.top_api_actions || []).slice(0, 8), 'Belum ada data action.');
+            renderClientFetchStats();
+            lucide.createIcons();
+        }
+
+        async function loadWorkerBudgetMetrics(showToastOnError = false) {
+            if (isDemoAdminSession()) {
+                ['worker-day-requests', 'worker-day-percent', 'worker-hour-requests', 'worker-cache-ratio', 'worker-saved-requests', 'worker-circuit-state', 'worker-circuit-detail'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerText = '••••';
+                });
+                ['worker-hourly-series', 'worker-daily-series', 'worker-top-paths', 'worker-top-actions', 'client-fetch-stats'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerHTML = '<p class="text-slate-400 italic">Mode demo menyembunyikan data ini.</p>';
+                });
+                const alertBox = document.getElementById('worker-budget-alert');
+                if (alertBox) {
+                    alertBox.className = 'rounded-2xl border px-4 py-3 text-xs font-medium mb-6 bg-amber-50 border-amber-200 text-amber-700';
+                    alertBox.innerText = 'Mode demo menyembunyikan worker metrics.';
+                }
+                return;
+            }
+            const settingsTab = document.getElementById('tab-settings');
+            const exists = settingsTab && settingsTab.classList.contains('active');
+            if (!exists && showToastOnError === false) return;
+            try {
+                const res = await fetch('/__worker_metrics', { method: 'GET' });
+                const data = await res.json();
+                if (!res.ok || data.status !== 'ok') {
+                    throw new Error(data.message || 'Metrics worker tidak tersedia.');
+                }
+                renderWorkerBudgetMetrics(data);
+            } catch (error) {
+                if (showToastOnError) showToast(error.message || 'Gagal memuat metrics worker.', 'error');
+                const alertBox = document.getElementById('worker-budget-alert');
+                if (alertBox) {
+                    alertBox.className = 'rounded-2xl border px-4 py-3 text-xs font-medium mb-6 bg-red-50 border-red-200 text-red-700';
+                    alertBox.innerText = error.message || 'Gagal memuat metrics worker.';
+                }
+            }
+        }
+
+        function ensureWorkerMetricsPolling() {
+            if (isDemoAdminSession()) return;
+            if (workerMetricsTimer) return;
+            workerMetricsTimer = setInterval(() => {
+                const settingsTab = document.getElementById('tab-settings');
+                if (!settingsTab || !settingsTab.classList.contains('active')) return;
+                if (document.visibilityState !== 'visible') return;
+                loadWorkerBudgetMetrics(false);
+            }, 5 * 60 * 1000);
+        }
         
         function switchTab(t) { 
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); 
@@ -1315,35 +2515,56 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                 }
             }
 
+            if (t === 'settings') {
+                if (!isDemoAdminSession()) {
+                    ensureWorkerMetricsPolling();
+                    loadWorkerBudgetMetrics(false);
+                }
+            }
+
             if(window.innerWidth < 768) toggleSidebar(); 
         }
 
         async function setLunas(id) { 
+            if (guardDemoAdminAction('aktivasi order')) return;
             const isConfirmed = await customConfirm('Aktifkan akses materi (Lunas) untuk user ini?');
             if(!isConfirmed) return; 
             
             showToast('Memproses aktivasi...', 'warning');
             try {
-                await fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'update_order_status', id }) }); 
-                showToast('Akses produk berhasil diaktifkan!', 'success');
-                forceSync(); 
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildAdminAuthPayload({ action: 'update_order_status', id })) }); 
+                const data = await res.json();
+                if(data.status === 'success') {
+                    syncPublicCacheStateFromPayload(data);
+                    showToast('Akses produk berhasil diaktifkan!', 'success');
+                    forceSync(); 
+                } else {
+                    showToast(data.message || 'Gagal memproses', 'error');
+                }
             } catch(e) {
                 showToast('Gagal menghubungi server.', 'error');
             }
         }
 
         async function setPending(id) { 
+            if (guardDemoAdminAction('menonaktifkan order')) return;
             const isConfirmed = await customConfirm('Non-aktifkan akses materi (Pending) untuk user ini?');
             if(!isConfirmed) return; 
             
             showToast('Memproses penonaktifan...', 'warning');
             try {
-                const res = await fetch(SCRIPT_URL, { 
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                const res = await fetch(endpoint, { 
                     method: 'POST', 
-                    body: JSON.stringify({ action: 'update_order_status', id: id, status: 'Pending' }) 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildAdminAuthPayload({ action: 'update_order_status', id: id, status: 'Pending' })) 
                 }); 
                 const data = await res.json();
                 if(data.status === 'success') {
+                    syncPublicCacheStateFromPayload(data);
                     showToast('Akses produk berhasil dinonaktifkan!', 'success');
                     forceSync();
                 } else {
@@ -1355,7 +2576,10 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
         }
 
         function openProdModal() { 
+            if (guardDemoAdminAction('membuka editor produk')) return;
             document.getElementById('form-prod').reset(); 
+            document.getElementById('p-desc').value = '';
+            updateProductDescriptionCounter('');
             updateProdPreview(''); 
             document.getElementById('p-is-edit').value = 'false'; 
             
@@ -1384,13 +2608,60 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             idInput.classList.add('bg-slate-100', 'text-slate-500', 'cursor-not-allowed');
             idInput.classList.remove('bg-slate-50', 'text-slate-700');
             
-            document.getElementById('modal-prod').classList.remove('hidden'); 
+            (function(m){ m.classList.remove('hidden'); m.classList.add('flex'); })(document.getElementById('modal-prod')); 
         }
-        function openPageModal() { document.getElementById('form-page').reset(); document.getElementById('pg-is-edit').value = 'false'; document.getElementById('modal-page').classList.remove('hidden'); }
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-        function logout() { sessionStorage.clear(); localStorage.removeItem(CACHE_KEY_ADMIN); location.reload(); }
+        function openPageModal() { if (guardDemoAdminAction('membuka editor halaman')) return; document.getElementById('form-page').reset(); document.getElementById('pg-is-edit').value = 'false'; (function(m){ m.classList.remove('hidden'); m.classList.add('flex'); })(document.getElementById('modal-page')); }
+        function closeModal(id) { const m=document.getElementById(id); m.classList.add('hidden'); m.classList.remove('flex'); }
+        async function revokeAdminSessionOnServer() {
+            const token = String(sessionStorage.getItem('auth_session_token') || '');
+            if (!token) return false;
+            const primaryEndpoint = getApiEndpoint();
+            const scriptFallback = (typeof SCRIPT_URL !== 'undefined') ? SCRIPT_URL : null;
+            const endpoints = [primaryEndpoint, scriptFallback]
+                .filter(Boolean)
+                .filter((value, index, arr) => arr.indexOf(value) === index);
+
+            for (const endpoint of endpoints) {
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'admin_logout',
+                            auth_session_token: token,
+                            auth_role: sessionStorage.getItem('auth_role') || ''
+                        })
+                    });
+                    const payload = await readJsonSafe(res);
+                    if (payload && payload.status === 'success') return true;
+                } catch (err) {}
+            }
+            return false;
+        }
+
+        function syncPublicCacheStateFromPayload(payload) {
+            const state = payload && payload.cache_state;
+            if (!state) return;
+            try {
+                if (window.CEPAT_CACHE_STATE && typeof window.CEPAT_CACHE_STATE.sync === 'function') {
+                    window.CEPAT_CACHE_STATE.sync(state, Date.now());
+                }
+            } catch (e) {}
+        }
+
+        async function logout() {
+            await revokeAdminSessionOnServer();
+            if (workerMetricsTimer) {
+                clearInterval(workerMetricsTimer);
+                workerMetricsTimer = null;
+            }
+            clearAdminSession();
+            localStorage.removeItem(CACHE_KEY_ADMIN);
+            location.reload();
+        }
 
         async function submitFormToGAS(formId, payload, successMsg, modalIdToClose = null) {
+            if (guardDemoAdminAction('menyimpan perubahan')) return;
             const form = document.getElementById(formId);
             const btn = form.querySelector('button[type="submit"]');
             const originalText = btn.innerText;
@@ -1400,10 +2671,14 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             lucide.createIcons();
 
             try {
-                const res = await fetch(SCRIPT_URL, {
+                const endpoint = getApiEndpoint();
+                if(!endpoint) throw new Error('API endpoint tidak tersedia');
+                if (!payload.rid) payload.rid = 'ADM-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+                const securePayload = buildAdminAuthPayload(payload);
+                const res = await fetch(endpoint, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload)
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(securePayload)
                 });
                 
                 const text = await res.text();
@@ -1411,6 +2686,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                 try { data = JSON.parse(text); } catch(e) { throw new Error('Format respon server tidak valid.'); }
 
                 if(data.status === 'success') {
+                    syncPublicCacheStateFromPayload(data);
                     if(modalIdToClose) closeModal(modalIdToClose);
                     showToast(successMsg, 'success');
                     forceSync();
@@ -1427,11 +2703,19 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
 
         document.getElementById('form-prod').onsubmit = async (e) => { 
             e.preventDefault(); 
+            const descField = document.getElementById('p-desc');
+            const descValidation = validateProductDescriptionInput(descField.value);
+            if (descValidation.errors.length) {
+                showToast(descValidation.errors[0], 'error');
+                return;
+            }
+            descField.value = descValidation.value;
+            updateProductDescriptionCounter(descValidation.value);
             const p = { 
                 action: 'save_product', 
                 id: document.getElementById('p-id').value, 
                 title: document.getElementById('p-title').value, 
-                desc: document.getElementById('p-desc').value, 
+                desc: descValidation.value, 
                 url: document.getElementById('p-url').value, 
                 harga: document.getElementById('p-harga').value, 
                 commission: document.getElementById('p-commission').value,
@@ -1445,6 +2729,17 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             }; 
             await submitFormToGAS('form-prod', p, 'Produk berhasil disimpan!', 'modal-prod');
         };
+
+        document.getElementById('p-desc').addEventListener('input', (event) => {
+            updateProductDescriptionCounter(event.target.value);
+        });
+
+        document.getElementById('p-desc').addEventListener('blur', (event) => {
+            event.target.value = normalizeProductDescriptionInput(event.target.value);
+            updateProductDescriptionCounter(event.target.value);
+        });
+
+        updateProductDescriptionCounter(document.getElementById('p-desc').value);
 
         document.getElementById('form-page').onsubmit = async (e) => { 
             e.preventDefault(); 
@@ -1465,28 +2760,104 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
 
         document.getElementById('form-branding').onsubmit = async (e) => { 
             e.preventDefault(); 
+            const rawLogo = document.getElementById('set-logo').value;
+            const rawFavicon = document.getElementById('set-favicon').value;
+            const siteLogo = normalizeBrandAssetUrl(rawLogo);
+            const siteFavicon = normalizeBrandAssetUrl(rawFavicon);
+            const rejectedLogo = rawLogo.trim() && !siteLogo;
+            const rejectedFavicon = rawFavicon.trim() && !siteFavicon;
+            if (rejectedLogo || rejectedFavicon) {
+                showToast('URL branding placeholder/tidak valid diabaikan. Gunakan URL HTTPS yang benar atau kosongkan field.', 'warning');
+                if (rejectedLogo) document.getElementById('set-logo').value = '';
+                if (rejectedFavicon) document.getElementById('set-favicon').value = '';
+            }
             const p = { 
                 site_name: document.getElementById('set-site-name').value, 
                 site_tagline: document.getElementById('set-site-tagline').value, 
-                site_logo: document.getElementById('set-logo').value, 
-                site_favicon: document.getElementById('set-favicon').value 
+                site_logo: siteLogo || document.getElementById('set-logo').value, 
+                site_favicon: siteFavicon || document.getElementById('set-favicon').value 
             }; 
             await submitFormToGAS('form-branding', { action: 'update_settings', payload: p }, 'Branding Tersimpan!');
         };
 
         document.getElementById('form-sys').onsubmit = async (e) => { 
             e.preventDefault(); 
+            const mootaCfg = getMootaFormConfig();
+            const mootaValidation = validateMootaFormConfig(mootaCfg);
+            if (mootaValidation.hasAnyValue && mootaValidation.errors.length) {
+                const msg = mootaValidation.errors[0];
+                setMootaStatus(msg, 'error');
+                showToast(msg, 'error');
+                return;
+            }
+
+            if (mootaValidation.hasAnyValue) {
+                const mootaChanged = mootaCfg.gasUrl !== MOOTA_URL || !!mootaCfg.token || !MOOTA_TOKEN_CONFIGURED;
+                if (mootaChanged) {
+                    try {
+                        await testMootaConnection({ silent: true });
+                    } catch (err) {
+                        showToast(err.message || 'Koneksi Moota gagal.', 'error');
+                        return;
+                    }
+                }
+            }
+
+            const ikCfg = getImageKitFormConfig();
+            const ikValidation = validateImageKitFormConfig(ikCfg, { allowMissingEndpoint: true });
+            if (ikValidation.hasAnyValue && ikValidation.errors.length) {
+                const msg = ikValidation.errors[0];
+                setImageKitStatus(msg, 'error');
+                showToast(msg, 'error');
+                return;
+            }
+
+            if (ikValidation.hasAnyValue) {
+                try {
+                    const testResult = await testImageKitConnection({ silent: true });
+                    if (testResult && testResult.endpoint) {
+                        document.getElementById('set-ik-end').value = testResult.endpoint;
+                    }
+                } catch (err) {
+                    showToast(err.message || 'Koneksi ImageKit gagal.', 'error');
+                    return;
+                }
+                if (!normalizeImageKitEndpoint(document.getElementById('set-ik-end').value)) {
+                    const msg = 'ImageKit URL endpoint belum terdeteksi. Isi manual dari dashboard ImageKit Anda, misalnya https://ik.imagekit.io/nama-endpoint';
+                    setImageKitStatus(msg, 'warning');
+                    showToast(msg, 'warning');
+                    return;
+                }
+            }
+
             const p = { 
                 contact_email: document.getElementById('set-email').value, 
                 wa_admin: document.getElementById('set-wa').value, 
                 fonnte_token: document.getElementById('set-fonnte').value, 
-                ik_public_key: document.getElementById('set-ik-pub').value, 
-                ik_endpoint: document.getElementById('set-ik-end').value,
-
+                ik_public_key: normalizeImageKitInput(document.getElementById('set-ik-pub').value), 
+                ik_endpoint: normalizeImageKitEndpoint(document.getElementById('set-ik-end').value)
             }; 
+            if (mootaValidation.hasAnyValue) {
+                p.moota_gas_url = normalizeMootaUrl(document.getElementById('set-moota-url').value);
+            }
+            const nextMootaToken = normalizeMootaInput(document.getElementById('set-moota-token').value);
+            if (nextMootaToken) p.moota_token = nextMootaToken;
+            const nextPrivateKey = normalizeImageKitInput(document.getElementById('set-ik-priv').value);
+            if (nextPrivateKey) p.ik_private_key = nextPrivateKey;
             await submitFormToGAS('form-sys', { action: 'update_settings', payload: p }, 'API Sistem Updated!');
+            if (mootaValidation.hasAnyValue) {
+                MOOTA_URL = p.moota_gas_url;
+            }
+            if (nextMootaToken) document.getElementById('set-moota-token').value = '';
+            updateMootaHints(nextMootaToken ? true : MOOTA_TOKEN_CONFIGURED);
+            IK_PUB = p.ik_public_key;
+            IK_END = p.ik_endpoint;
+            if (nextPrivateKey) {
+                document.getElementById('set-ik-priv').value = '';
+                updateImageKitPrivateHint(true);
+            }
             // Clear local cache agar perubahan langsung terlihat di halaman depan
-            localStorage.removeItem('melimpah_global_settings');
+            localStorage.removeItem('cepat_global_settings');
         };
 
         document.getElementById('form-cf').onsubmit = async (e) => { 
@@ -1498,13 +2869,7 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
             await submitFormToGAS('form-cf', { action: 'update_settings', payload: p }, 'Kunci Cloudflare Disimpan!');
         };
 
-        async function normalizeUsers() {
-            await submitFormToGAS('form-sys', { action: 'normalize_users' }, 'Kolom Users tersinkron!');
-        }
-
-
-
-        window.onload = () => { lucide.createIcons(); if(sessionStorage.getItem('adm_v10')) init(); };
+        window.onload = () => { lucide.createIcons(); if(isAdminSessionActive()) init(); };
     </script>
 </body>
 </html>
