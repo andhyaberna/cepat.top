@@ -7,13 +7,17 @@
     "enabled": true
   },
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
   "compatibility_flags": [
     "nodejs_compat"
   ],
   "vars": {
-    "MOOTA_GAS_URL": "https://script.google.com/macros/s/AKfycbzbZ2uVuN1kr93pP-f8k5sTBK6ZlV8LbIx2HuYI4ufKqz7d9NL6HcnNqyFk7Gs6TANp/exec",
-    "MOOTA_TOKEN": "L533Nt1k"
+    "ALLOWED_ORIGINS": "https://cepat.top,https://www.cepat.top",
+    "APP_GAS_URL": "https://script.google.com/macros/s/AKfycbxvpwcjg4pwXiXFVrCZ2W_qtSaahMkbbowPqvNGPJKkhO4zpLFsP2MF8lkpMoZ37LHy/exec",
+    "MOOTA_GAS_URL": "https://script.google.com/macros/s/AKfycbxvpwcjg4pwXiXFVrCZ2W_qtSaahMkbbowPqvNGPJKkhO4zpLFsP2MF8lkpMoZ37LHy/exec",
+    "MOOTA_TOKEN": "REPLACE_ME"
   }
 }

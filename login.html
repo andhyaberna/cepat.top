@@ -7,14 +7,25 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-    <link rel="dns-prefetch" href="https://unpkg.com">
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+    <script src="site.config.js"></script>
     <script src="config.js?v=2026_1"></script>
 
     <script>
         (function() {
             const CACHE_KEY = 'cepat_global_settings';
             const CACHE_AGE = 60 * 60 * 1000; 
+
+            function syncGlobalSettingsCache(data, timestamp, version) {
+                if (!data) return;
+                const payload = { data: data, time: Number(timestamp || Date.now()), version: String(version || '') };
+                try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)); } catch(e){}
+                if (window.__CEPAT_GLOBAL_SETTINGS__) {
+                    window.__CEPAT_GLOBAL_SETTINGS__.cached = payload;
+                    window.__CEPAT_GLOBAL_SETTINGS__.isFresh = true;
+                    window.__CEPAT_GLOBAL_SETTINGS__.version = payload.version;
+                }
+                applyGlobalSettings(data);
+            }
 
             function applyGlobalSettings(data) {
                 // Eksekusi Cepat Favicon
@@ -66,17 +77,37 @@
                 applyGlobalSettings(cached.data);
             }
 
-            if (!cached || !cached.time || (now - cached.time > CACHE_AGE)) {
+            window.__CEPAT_GLOBAL_SETTINGS__ = {
+                key: CACHE_KEY,
+                maxAge: CACHE_AGE,
+                cached: cached,
+                isFresh: !!(cached && cached.time && (now - cached.time <= CACHE_AGE)),
+                version: String((cached && cached.version) || ''),
+                apply: applyGlobalSettings,
+                sync: syncGlobalSettingsCache
+            };
+
+            const cacheStatePromise = (window.CEPAT_CACHE_STATE && typeof window.CEPAT_CACHE_STATE.ensureFresh === 'function')
+                ? window.CEPAT_CACHE_STATE.ensureFresh()
+                : Promise.resolve(null);
+            cacheStatePromise.then(cacheState => {
+                const settingsVersion = String((cacheState && cacheState.settings) || '');
+                const cachedVersion = String((cached && cached.version) || '');
+                const shouldRefresh = !cached || !cached.time || (now - cached.time > CACHE_AGE) || (!!settingsVersion && cachedVersion !== settingsVersion);
+                if (!shouldRefresh) return;
                 if(typeof SCRIPT_URL === 'undefined') return;
-                fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: 'get_global_settings' }) })
+                return fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'get_global_settings', cache_version: settingsVersion })
+                })
                     .then(res => res.json())
                     .then(r => {
                         if(r.status === 'success') {
-                            localStorage.setItem(CACHE_KEY, JSON.stringify({ data: r.data, time: now }));
-                            applyGlobalSettings(r.data); 
+                            syncGlobalSettingsCache(r.data, Date.now(), String(r.cache_version || settingsVersion || ''));
                         }
-                    }).catch(e => console.error("Global Settings Sync Failed", e));
-            }
+                    });
+            }).catch(e => console.error("Global Settings Sync Failed", e));
         })();
     </script>
     
@@ -87,8 +118,9 @@
 
     <title>Login Member</title>
     
-    <script src="https://unpkg.com/lucide@0.577.0/dist/umd/lucide.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preload" as="style" href="tailwind.css?v=2026_1">
+    <link rel="stylesheet" href="tailwind.css?v=2026_1">
+    <script defer src="assets/vendor/lucide.min.js?v=0.577.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -141,7 +173,7 @@
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
                         <label class="ml-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Password</label>
-                        <button type="button" onclick="document.getElementById('modal-forgot').classList.remove('hidden')" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider">Lupa Password?</button>
+                        <button type="button" onclick="(function(m){m.classList.remove('hidden');m.classList.add('flex');})(document.getElementById('modal-forgot'))" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider">Lupa Password?</button>
                     </div>
                     <div class="relative">
                         <i data-lucide="lock" class="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
@@ -163,9 +195,9 @@
     </main>
 
     <!-- Modal Forgot Password -->
-    <div id="modal-forgot" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm hidden p-4">
+    <div id="modal-forgot" class="fixed inset-0 z-50 items-center justify-center bg-black/50 backdrop-blur-sm hidden p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative">
-            <button onclick="document.getElementById('modal-forgot').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+            <button onclick="(function(m){m.classList.add('hidden');m.classList.remove('flex');})(document.getElementById('modal-forgot'))" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
             
@@ -227,43 +259,49 @@
             try {
                 if(typeof SCRIPT_URL === 'undefined') throw new Error("Config.js tidak terpanggil!");
                 const res = await fetch(SCRIPT_URL, { 
-                    method: 'POST', body: JSON.stringify({ action: 'login', email: document.getElementById('email').value, password: document.getElementById('pass').value })
+                    method: 'POST', body: JSON.stringify({ action: 'login_and_dashboard', email: document.getElementById('email').value, password: document.getElementById('pass').value })
                 });
                 const r = await res.json();
                 
                 if(r.status === 'success') {
+                    const role = String((r.data && r.data.role) || 'member').toLowerCase();
+                    const nama = String((r.data && r.data.nama) || 'Member');
+                    const email = String((r.data && r.data.email) || '');
+                    const uid = String((r.data && r.data.id) || '');
+
+                    // Unified session contract
+                    sessionStorage.setItem('auth_v1', 'true');
+                    sessionStorage.setItem('auth_role', role);
+                    sessionStorage.setItem('auth_name', nama);
+                    if (email) sessionStorage.setItem('auth_email', email);
+                    if (uid) sessionStorage.setItem('auth_user_id', uid);
+
+                    // Legacy compatibility keys
                     sessionStorage.setItem('user_email', r.data.email);
                     sessionStorage.setItem('user_nama', r.data.nama);
                     sessionStorage.setItem('user_id', r.data.id);
 
                     showToast("Login Berhasil! Mengalihkan...", "success");
 
-                    // Prefetch dashboard data saat user melihat toast
-                    const prefetch = fetch(SCRIPT_URL, {
-                        method: 'POST',
-                        body: JSON.stringify({ action: 'get_dashboard_data', email: r.data.email })
-                    })
-                    .then(pRes => pRes.json())
-                    .then(d => {
-                        if (d.status === 'success' && d.data) {
-                            const combined = {
-                                ...d.data.products,
-                                pages: d.data.pages,
-                                settings: d.data.settings,
-                                user: d.data.user,
-                                affiliate_pixels: d.data.affiliate_pixels
-                            };
-                            localStorage.setItem('cepat_dashboard_data_' + r.data.email, JSON.stringify(combined));
-                            if (d.data.settings) {
-                                localStorage.setItem('cepat_global_settings', JSON.stringify({ data: d.data.settings, time: Date.now() }));
-                            }
+                    const bootAt = Date.now();
+                    if (r.dashboard) {
+                        const combined = {
+                            ...r.dashboard.products,
+                            pages: r.dashboard.pages,
+                            settings: r.dashboard.settings,
+                            user: r.dashboard.user,
+                            affiliate_pixels: r.dashboard.affiliate_pixels
+                        };
+                        localStorage.setItem('cepat_dashboard_data_' + r.data.email, JSON.stringify({ data: combined, time: bootAt }));
+                        sessionStorage.setItem('dashboard_bootstrap_time', String(bootAt));
+                        if (r.dashboard.settings) {
+                            localStorage.setItem('cepat_global_settings', JSON.stringify({ data: r.dashboard.settings, time: bootAt }));
                         }
-                    })
-                    .catch(() => {});
+                    }
 
-                    // Redirect setelah prefetch selesai ATAU minimal 800ms (toast terlihat)
+                    // Redirect setelah toast terlihat sebentar
                     const minDelay = new Promise(resolve => setTimeout(resolve, 800));
-                    Promise.all([prefetch, minDelay]).then(() => {
+                    minDelay.then(() => {
                         window.location.href = 'dashboard.html';
                     });
                 } else { 
