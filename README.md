@@ -20,6 +20,13 @@ Folder ini adalah paket distribusi user yang sudah dipangkas dari file developme
 5. Deploy ke Github dan Cloudflare Pages dari folder ini.
 6. Buka Google Sheets, lalu paste `appscript.js` ke Apps Script editor dan deploy sebagai Web App.
 
+## Affiliate Link Base URL
+
+- Frontend sekarang membentuk link affiliate absolut dari `SITE_CONFIG.APP_BASE_URL` dengan fallback ke origin aktif saat dibuka di domain yang diizinkan.
+- Nilai default `APP_BASE_URL` digenerate otomatis oleh `setup.js` dalam format `https://domainutama.com`.
+- Untuk environment production, staging, atau custom domain lain, pastikan `APP_BASE_URL`, `PRIMARY_DOMAIN`, dan `ALLOWED_DOMAINS` di [site.config.js](/d:/cepat.top/cepat.top/site.config.js) saling sesuai.
+- Dashboard member area akan menormalisasi slug polos seperti `gpts-guerilla`, path relatif seperti `/p.html?s=gpts-guerilla`, dan URL penuh menjadi preview/copy link absolut yang siap dibuka.
+
 ## Checklist Setup User Baru
 
 1. Siapkan Google Sheets utama beserta sheet minimal: `Settings`, `Users`, `Orders`, `Access_Rules`, dan `Pages`.

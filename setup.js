@@ -66,6 +66,8 @@ var SITE_CONFIG = {
     // ── Domain Utama (Production) ──────────────────────────
     PRIMARY_DOMAIN: '${primary}',
 
+    APP_BASE_URL: 'https://${primary}',
+
     // ── Daftar Domain yang Diizinkan ───────────────────────
     ALLOWED_DOMAINS: [
 ${domains.map(d => `        '${d}'`).join(',\n')}

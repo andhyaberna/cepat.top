@@ -158,6 +158,67 @@
         } catch (e) {
             try { window.API_URL = _api; } catch (e2) { }
         }
+        var _trimTrailingSlash = function (value) {
+            return String(value || '').replace(/\/+$/, '');
+        };
+        var _isConfiguredFrontendHost = function (host) {
+            try {
+                if (!host) return false;
+                if (SITE_CONFIG.ALLOW_LOCALHOST !== false && (host === 'localhost' || host === '127.0.0.1')) {
+                    return true;
+                }
+                if (SITE_CONFIG.ALLOW_PAGES_DEV !== false && host.indexOf('.pages.dev') !== -1) {
+                    return true;
+                }
+                if (SITE_CONFIG.ALLOWED_DOMAINS && Array.isArray(SITE_CONFIG.ALLOWED_DOMAINS) && SITE_CONFIG.ALLOWED_DOMAINS.indexOf(host) !== -1) {
+                    return true;
+                }
+                if (SITE_CONFIG.ALLOWED_SUBDOMAIN_SUFFIXES && Array.isArray(SITE_CONFIG.ALLOWED_SUBDOMAIN_SUFFIXES)) {
+                    for (var i = 0; i < SITE_CONFIG.ALLOWED_SUBDOMAIN_SUFFIXES.length; i++) {
+                        if (SITE_CONFIG.ALLOWED_SUBDOMAIN_SUFFIXES[i] && host.endsWith(SITE_CONFIG.ALLOWED_SUBDOMAIN_SUFFIXES[i])) {
+                            return true;
+                        }
+                    }
+                }
+            } catch (e) { }
+            return false;
+        };
+        var _appBaseUrl = '';
+        try {
+            var _origin = (typeof location.origin === 'string' && location.origin && location.origin !== 'null')
+                ? _trimTrailingSlash(location.origin)
+                : '';
+            var _scheme = location.protocol || 'https:';
+            var _siteBaseUrl = SITE_CONFIG.APP_BASE_URL
+                ? _trimTrailingSlash(SITE_CONFIG.APP_BASE_URL)
+                : '';
+
+            if ((_scheme === 'https:' || _scheme === 'http:') && _origin && _isConfiguredFrontendHost(location.hostname || '')) {
+                _appBaseUrl = _origin;
+            } else if (_siteBaseUrl) {
+                _appBaseUrl = _siteBaseUrl;
+            } else if (SITE_CONFIG.PRIMARY_DOMAIN) {
+                _appBaseUrl = 'https://' + _trimTrailingSlash(String(SITE_CONFIG.PRIMARY_DOMAIN).replace(/^https?:\/\//i, ''));
+            } else {
+                _appBaseUrl = _origin;
+            }
+        } catch (e) {
+            try {
+                _appBaseUrl = SITE_CONFIG.PRIMARY_DOMAIN
+                    ? 'https://' + _trimTrailingSlash(String(SITE_CONFIG.PRIMARY_DOMAIN).replace(/^https?:\/\//i, ''))
+                    : '';
+            } catch (e2) { }
+        }
+        try {
+            Object.defineProperty(window, 'APP_BASE_URL', {
+                value: _appBaseUrl,
+                writable: false,
+                configurable: false,
+                enumerable: false
+            });
+        } catch (e) {
+            try { window.APP_BASE_URL = _appBaseUrl; } catch (e2) { }
+        }
         try {
             if (!window.__CEPAT_FETCH_WRAPPED__ && typeof window.fetch === 'function') {
                 var _nativeFetch = window.fetch.bind(window);

@@ -16,6 +16,8 @@ var SITE_CONFIG = {
     // ── Domain Utama (Production) ──────────────────────────
     PRIMARY_DOMAIN: 'cepat.top',
 
+    APP_BASE_URL: 'https://cepat.top',
+
     // ── Daftar Domain yang Diizinkan ───────────────────────
     ALLOWED_DOMAINS: [
         'cepat.top',

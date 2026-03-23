@@ -594,29 +594,172 @@
             }
         });
 
-        const domainWeb = window.location.origin + "/index.html"; 
-        // Fallback jika tidak ada userId
-        const affLink = `${domainWeb}?ref=${userId || 'GUEST'}`;
+        function normalizeBaseUrl(value) {
+            return String(value || '').trim().replace(/\/+$/, '');
+        }
+
+        function getSafeRuntimeOrigin() {
+            return (typeof window.location.origin === 'string' && window.location.origin && window.location.origin !== 'null')
+                ? normalizeBaseUrl(window.location.origin)
+                : '';
+        }
+
+        function getUrlBaseWithSlash() {
+            const configuredBaseUrl = getConfiguredAppBaseUrl();
+            const runtimeOrigin = getSafeRuntimeOrigin();
+            const fallbackBaseUrl = configuredBaseUrl || runtimeOrigin || 'https://localhost';
+            return `${normalizeBaseUrl(fallbackBaseUrl)}/`;
+        }
+
+        function getConfiguredAppBaseUrl() {
+            const siteConfig = window.SITE_CONFIG || {};
+            const currentOrigin = getSafeRuntimeOrigin();
+            const currentHost = window.location.hostname || '';
+            const currentProtocol = window.location.protocol || 'https:';
+            const allowedDomains = Array.isArray(siteConfig.ALLOWED_DOMAINS) ? siteConfig.ALLOWED_DOMAINS : [];
+            const allowedSuffixes = Array.isArray(siteConfig.ALLOWED_SUBDOMAIN_SUFFIXES) ? siteConfig.ALLOWED_SUBDOMAIN_SUFFIXES : [];
+            const isConfiguredHost =
+                (siteConfig.ALLOW_LOCALHOST !== false && (currentHost === 'localhost' || currentHost === '127.0.0.1')) ||
+                allowedDomains.includes(currentHost) ||
+                (siteConfig.ALLOW_PAGES_DEV !== false && currentHost.includes('.pages.dev')) ||
+                allowedSuffixes.some(suffix => suffix && currentHost.endsWith(suffix));
+
+            if (window.APP_BASE_URL) {
+                return normalizeBaseUrl(window.APP_BASE_URL);
+            }
+            if ((currentProtocol === 'https:' || currentProtocol === 'http:') && currentOrigin && isConfiguredHost) {
+                return currentOrigin;
+            }
+            if (siteConfig.APP_BASE_URL) {
+                return normalizeBaseUrl(siteConfig.APP_BASE_URL);
+            }
+            if (siteConfig.PRIMARY_DOMAIN) {
+                return `https://${normalizeBaseUrl(String(siteConfig.PRIMARY_DOMAIN).replace(/^https?:\/\//i, ''))}`;
+            }
+            return currentOrigin;
+        }
+
+        function toUrlInstance(pathOrUrl) {
+            const rawValue = String(pathOrUrl || '').trim();
+            const baseUrl = getUrlBaseWithSlash();
+
+            if (!rawValue) {
+                return new URL(baseUrl);
+            }
+
+            if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(rawValue)) {
+                return new URL(rawValue);
+            }
+
+            const slugMatch = rawValue.match(/^([a-z0-9][a-z0-9-]*)(?:\?(.*))?$/i);
+            if (slugMatch && !rawValue.includes('/') && !rawValue.includes('.html')) {
+                const slugUrl = new URL('p.html', baseUrl);
+                slugUrl.searchParams.set('s', slugMatch[1]);
+                if (slugMatch[2]) {
+                    const extraParams = new URLSearchParams(slugMatch[2]);
+                    extraParams.forEach((value, key) => {
+                        if (key !== 's') slugUrl.searchParams.set(key, value);
+                    });
+                }
+                return slugUrl;
+            }
+
+            return new URL(rawValue.replace(/^\.\//, ''), baseUrl);
+        }
+
+        function buildAffiliateUrl(pathOrUrl, refId) {
+            const url = toUrlInstance(pathOrUrl);
+            url.searchParams.set('ref', refId || 'GUEST');
+            return url.toString();
+        }
+
+        function buildCheckoutUrl(productId) {
+            const checkoutUrl = new URL('checkout.html', getUrlBaseWithSlash());
+            checkoutUrl.searchParams.set('id', productId);
+            return checkoutUrl.toString();
+        }
+
+        function buildPageUrl(slug) {
+            const pageUrl = new URL('p.html', getUrlBaseWithSlash());
+            pageUrl.searchParams.set('s', slug);
+            return pageUrl.toString();
+        }
+
+        function buildAffiliateLandingPageLink(product, refId) {
+            const baseTarget = product && product.lp_url ? product.lp_url : buildCheckoutUrl(product.id);
+            return buildAffiliateUrl(baseTarget, refId);
+        }
+
+        function extractLandingPageSlug(rawTarget) {
+            const rawValue = String(rawTarget || '').trim();
+            if (!rawValue) return '';
+
+            const slugMatch = rawValue.match(/^([a-z0-9][a-z0-9-]*)(?:\?.*)?$/i);
+            if (slugMatch && !rawValue.includes('/') && !rawValue.includes('.html')) {
+                return slugMatch[1];
+            }
+
+            try {
+                const url = toUrlInstance(rawValue);
+                if (url.pathname.endsWith('/p.html') || url.pathname === '/p.html') {
+                    return url.searchParams.get('s') || '';
+                }
+            } catch (error) {}
+
+            return '';
+        }
+
+        async function copyTextToClipboard(text, successMessage) {
+            const value = String(text || '').trim();
+            if (!value) {
+                showToast('Link tidak tersedia untuk disalin.', 'error');
+                return false;
+            }
+
+            try {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function' && window.isSecureContext) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = value;
+                    textarea.setAttribute('readonly', 'readonly');
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    textarea.style.pointerEvents = 'none';
+                    document.body.appendChild(textarea);
+                    textarea.focus();
+                    textarea.select();
+                    textarea.setSelectionRange(0, textarea.value.length);
+                    const didCopy = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    if (!didCopy) {
+                        throw new Error('Clipboard copy failed');
+                    }
+                }
+
+                showToast(successMessage || 'Link berhasil disalin!', 'success');
+                return true;
+            } catch (error) {
+                showToast('Gagal menyalin link. Silakan copy manual dari kolom URL.', 'error');
+                return false;
+            }
+        }
+
+        const affLink = buildAffiliateUrl('index.html', userId || 'GUEST');
         
         window.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('aff-link-display').innerText = affLink;
+            const affiliateDisplay = document.getElementById('aff-link-display');
+            if (affiliateDisplay) affiliateDisplay.innerText = affLink;
         });
 
         function copyAffLink() {
-            navigator.clipboard.writeText(affLink);
-            showToast("Link Affiliate berhasil disalin!", "success");
+            copyTextToClipboard(affLink, "Link Affiliate berhasil disalin!");
         }
 
         function copyPromoLink(productId) {
             const currentUserId = sessionStorage.getItem('user_id') || 'GUEST';
-            // Coba deteksi base URL
-            let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
-            if(baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-            
-            const finalAffLink = `${baseUrl}/checkout.html?id=${productId}&ref=${currentUserId}`;
-            
-            navigator.clipboard.writeText(finalAffLink);
-            showToast("Link promosi produk berhasil disalin!", "success");
+            const finalAffLink = buildAffiliateUrl(buildCheckoutUrl(productId), currentUserId);
+            copyTextToClipboard(finalAffLink, "Link promosi produk berhasil disalin!");
         }
 
         function requestWithdrawal() {
@@ -712,10 +855,7 @@
             // Replace LINK_AFF with actual affiliate checkout link
             if (productId) {
                 const userId = sessionStorage.getItem('user_id') || 'GUEST';
-                let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
-                if(baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-                
-                const checkoutUrl = `${baseUrl}/checkout.html?id=${productId}&ref=${userId}`;
+                const checkoutUrl = buildAffiliateUrl(buildCheckoutUrl(productId), userId);
                 content = content.replace(/LINK_AFF/g, checkoutUrl);
             }
             
@@ -894,30 +1034,20 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                 const affiliateContainer = document.getElementById('list-affiliate-tools');
                 if (affiliateContainer) {
                     const userId = sessionStorage.getItem('user_id') || 'GUEST';
-                    // Get base URL for checkout fallback
-                    let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
-                    if(baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
                     // Use the same available products list for affiliate links
                     // Note: r.available is reversed above, but here we can use original order or reversed.
                     // Let's use the same list to be consistent.
                     affiliateContainer.innerHTML = r.available.map(p => {
-                        let targetUrl = p.lp_url;
-                        if (!targetUrl) {
-                            targetUrl = `${baseUrl}/checkout.html?id=${p.id}`;
-                        }
-                        
-                        // Smartly append ref
-                        const separator = targetUrl.includes('?') ? '&' : '?';
-                        const finalAffLink = `${targetUrl}${separator}ref=${userId}`;
+                        const finalAffLink = buildAffiliateLandingPageLink(p, userId);
+                        const pageSlug = extractLandingPageSlug(p.lp_url);
 
                         let downloadBtn = '';
-                        if (p.lp_url && window.cachedPages) {
-                             const slug = p.lp_url.replace('.html', '').split('?')[0];
-                             const hasPage = window.cachedPages.find(x => x[1] === slug);
+                        if (pageSlug && window.cachedPages) {
+                             const hasPage = window.cachedPages.find(x => x[1] === pageSlug);
                              if (hasPage) {
                                  downloadBtn = `
-                                <button onclick="downloadPageHTML('${slug}', '${p.id}')" class="bg-white text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 px-3 py-2.5 rounded-xl transition-colors border border-slate-200 shadow-sm" title="Unduh HTML Landing Page">
+                                <button onclick="downloadPageHTML('${pageSlug}', '${p.id}')" class="bg-white text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 px-3 py-2.5 rounded-xl transition-colors border border-slate-200 shadow-sm" title="Unduh HTML Landing Page">
                                     <i data-lucide="download" class="w-4 h-4"></i>
                                 </button>`;
                              }
@@ -946,14 +1076,14 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
                             </div>
                             
                             <div class="flex gap-2 mt-1">
-                                <button onclick="navigator.clipboard.writeText('${finalAffLink}'); showToast('Link Landing Page berhasil disalin!')" class="flex-1 bg-indigo-600 text-white hover:bg-indigo-700 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-200/50">
+                                <button onclick="copyTextToClipboard('${finalAffLink}', 'Link Landing Page berhasil disalin!')" class="flex-1 bg-indigo-600 text-white hover:bg-indigo-700 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-200/50">
                                     <i data-lucide="copy" class="w-3 h-3"></i> Salin Link
                                 </button>
                                 <button onclick="openPixelModal('${p.id}', '${p.title}')" data-pixel-btn="${p.id}" class="${pixelBtnClass} px-3 py-2.5 rounded-xl transition-colors border shadow-sm" title="Konfigurasi Pixel">
                                     <i data-lucide="target" class="w-4 h-4"></i>
                                 </button>
                                 ${downloadBtn}
-                                <a href="${finalAffLink}" target="_blank" class="px-3 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 rounded-xl transition-colors flex items-center justify-center shadow-sm">
+                                <a href="${finalAffLink}" target="_blank" rel="noopener noreferrer" class="px-3 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 rounded-xl transition-colors flex items-center justify-center shadow-sm">
                                     <i data-lucide="external-link" class="w-4 h-4"></i>
                                 </a>
                             </div>
@@ -1411,62 +1541,8 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
     </div>
 
     <script>
-        // Impl function to avoid duplicate code issues
-        window.downloadPageHTML_impl = function(slug, productId) {
-            let page = null;
-            
-            // 1. Check global pages
-            if (window.cachedPages) {
-                page = window.cachedPages.find(x => x[1] === slug);
-            }
-            
-            // 2. Check my pages
-            if (!page && window.myCachedPages) {
-                page = window.myCachedPages.find(x => x[1] === slug);
-            }
-            
-            // 3. Check current modal content (for preview/download before save)
-            if (!page) {
-                const modalSlug = document.getElementById('pg-slug') ? document.getElementById('pg-slug').value : '';
-                if (slug === modalSlug) {
-                     const title = document.getElementById('pg-title').value;
-                     const content = document.getElementById('pg-content').value;
-                     if(content) {
-                         page = ['TEMP', slug, title, content];
-                     }
-                }
-            }
-
-            if (!page) return showToast('Konten halaman tidak ditemukan', 'error');
-            
-            let content = page[3];
-            if (!content) return showToast('Konten HTML kosong!', 'warning');
-
-            // Replace LINK_AFF with actual affiliate checkout link
-            if (productId) {
-                const userId = sessionStorage.getItem('user_id') || 'GUEST';
-                let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
-                if(baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-                
-                const checkoutUrl = `${baseUrl}/checkout.html?id=${productId}&ref=${userId}`;
-                content = content.replace(/LINK_AFF/g, checkoutUrl);
-            }
-            
-            const filename = (slug || 'landing-page') + '.html';
-            const blob = new Blob([content], { type: 'text/html' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast('HTML berhasil diunduh!', 'success');
-        };
-
-        // Overwrite global function to use impl
-        window.downloadPageHTML = window.downloadPageHTML_impl;
+        // Keep helper exposed on window for inline onclick handlers.
+        window.downloadPageHTML = downloadPageHTML;
 
 
         // Modal Functions
@@ -1559,11 +1635,8 @@ src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"
 
         // Helper Copy Link
         function copyPageLink(slug) {
-            let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
-            if(baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-            const url = `${baseUrl}/p.html?s=${slug}`;
-            navigator.clipboard.writeText(url);
-            showToast('Link halaman disalin!', 'success');
+            const url = buildPageUrl(slug);
+            copyTextToClipboard(url, 'Link halaman disalin!');
         }
 
         function deletePage(id) {

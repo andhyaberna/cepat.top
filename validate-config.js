@@ -61,6 +61,21 @@ if (fs.existsSync(siteConfigPath)) {
                 fail('PRIMARY_DOMAIN is missing or empty');
             }
 
+            if (sandbox.SITE_CONFIG.APP_BASE_URL) {
+                try {
+                    const appBaseUrl = new URL(String(sandbox.SITE_CONFIG.APP_BASE_URL));
+                    if (appBaseUrl.protocol !== 'https:' && appBaseUrl.protocol !== 'http:') {
+                        fail('APP_BASE_URL harus menggunakan http:// atau https://');
+                    } else {
+                        pass(`APP_BASE_URL = "${sandbox.SITE_CONFIG.APP_BASE_URL}"`);
+                    }
+                } catch (e) {
+                    fail(`APP_BASE_URL tidak valid: ${sandbox.SITE_CONFIG.APP_BASE_URL}`);
+                }
+            } else {
+                warn('APP_BASE_URL not set — frontend absolute links will fallback to PRIMARY_DOMAIN');
+            }
+
             if (Array.isArray(sandbox.SITE_CONFIG.ALLOWED_DOMAINS) && sandbox.SITE_CONFIG.ALLOWED_DOMAINS.length > 0) {
                 pass(`ALLOWED_DOMAINS = [${sandbox.SITE_CONFIG.ALLOWED_DOMAINS.join(', ')}]`);
 
