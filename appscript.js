@@ -4077,3 +4077,1647 @@ function testLunasNotification(d) {
     return { status: "error", message: e.toString() };
   }
 }
+
+/* =========================
+   AI MEMBERSHIP PLATFORM - CORE
+========================= */
+
+// OpenAI Configuration
+function getOpenAIConfig_() {
+  const cfg = getSettingsMap_();
+  return {
+    apiKey: getSecret_("openai_api_key", cfg),
+    model: getCfgFrom_(cfg, "openai_model") || "gpt-4",
+    maxTokens: Number(getCfgFrom_(cfg, "openai_max_tokens")) || 2000,
+    temperature: Number(getCfgFrom_(cfg, "openai_temperature")) || 0.7
+  };
+}
+
+// OpenAI API Call
+function callOpenAI_(systemPrompt, userPrompt, options) {
+  const config = getOpenAIConfig_();
+  if (!config.apiKey) {
+    return { ok: false, error: "OpenAI API key not configured" };
+  }
+
+  const opts = options || {};
+  const payload = {
+    model: opts.model || config.model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    max_tokens: opts.maxTokens || config.maxTokens,
+    temperature: opts.temperature || config.temperature
+  };
+
+  try {
+    const response = UrlFetchApp.fetch("https://api.openai.com/v1/chat/completions", {
+      method: "post",
+      headers: {
+        "Authorization": "Bearer " + config.apiKey,
+        "Content-Type": "application/json"
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    const code = response.getResponseCode();
+    const data = JSON.parse(response.getContentText());
+
+    if (code === 200 && data.choices && data.choices.length > 0) {
+      return {
+        ok: true,
+        content: data.choices[0].message.content,
+        tokens: data.usage ? data.usage.total_tokens : 0,
+        model: data.model
+      };
+    }
+
+    return {
+      ok: false,
+      error: data.error ? data.error.message : "Unknown API error",
+      code: code
+    };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
+}
+
+// Credit System Helpers
+function getMemberSubscription_(userId) {
+  const sheet = ss.getSheetByName("Member_Subscriptions");
+  if (!sheet) return null;
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]) === String(userId) && String(data[i][3]).toLowerCase() === "active") {
+      return {
+        id: data[i][0],
+        planId: data[i][2],
+        status: data[i][3],
+        creditsBalance: Number(data[i][4]) || 0,
+        creditsUsed: Number(data[i][5]) || 0,
+        startDate: data[i][6],
+        endDate: data[i][7],
+        rowIndex: i + 1
+      };
+    }
+  }
+  return null;
+}
+
+function deductCredits_(userId, amount) {
+  const sub = getMemberSubscription_(userId);
+  if (!sub) return { ok: false, error: "No active subscription" };
+  if (sub.creditsBalance < amount) return { ok: false, error: "Insufficient credits" };
+
+  const sheet = ss.getSheetByName("Member_Subscriptions");
+  sheet.getRange(sub.rowIndex, 5).setValue(sub.creditsBalance - amount);
+  sheet.getRange(sub.rowIndex, 6).setValue(sub.creditsUsed + amount);
+  sheet.getRange(sub.rowIndex, 10).setValue(toISODate_());
+  
+  return { ok: true, newBalance: sub.creditsBalance - amount };
+}
+
+function grantCredits_(userId, amount) {
+  const sub = getMemberSubscription_(userId);
+  if (!sub) return { ok: false, error: "No active subscription" };
+
+  const sheet = ss.getSheetByName("Member_Subscriptions");
+  sheet.getRange(sub.rowIndex, 5).setValue(sub.creditsBalance + amount);
+  sheet.getRange(sub.rowIndex, 10).setValue(toISODate_());
+  
+  return { ok: true, newBalance: sub.creditsBalance + amount };
+}
+
+function getUserIdByEmail_(email) {
+  const usersSheet = ss.getSheetByName("Users");
+  if (!usersSheet) return null;
+  
+  const data = usersSheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).toLowerCase() === String(email).toLowerCase()) {
+      return String(data[i][0]);
+    }
+  }
+  return null;
+}
+
+function ensureAISheet_(name, headers) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+  }
+  return sheet;
+}
+
+/* =========================
+   ADMIN AI SETTINGS
+========================= */
+function adminOpenAISettingsGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_openai_settings_get" });
+  const cfg = getSettingsMap_();
+  
+  return {
+    status: "success",
+    data: {
+      model: getCfgFrom_(cfg, "openai_model") || "gpt-4",
+      max_tokens: getCfgFrom_(cfg, "openai_max_tokens") || 2000,
+      temperature: getCfgFrom_(cfg, "openai_temperature") || 0.7,
+      api_key_configured: !!getSecret_("openai_api_key", cfg)
+    }
+  };
+}
+
+function adminOpenAISettingsPut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_openai_settings_put" });
+  const payload = d.payload || d;
+  
+  // Save API key to Script Properties (secure)
+  if (payload.api_key) {
+    PropertiesService.getScriptProperties().setProperty("openai_api_key", String(payload.api_key).trim());
+  }
+  
+  // Save other settings to Settings sheet
+  const settingsSheet = ss.getSheetByName("Settings");
+  if (settingsSheet) {
+    const settingsData = settingsSheet.getDataRange().getValues();
+    const updates = {};
+    if (payload.model) updates.openai_model = payload.model;
+    if (payload.max_tokens) updates.openai_max_tokens = payload.max_tokens;
+    if (payload.temperature !== undefined) updates.openai_temperature = payload.temperature;
+    
+    for (const key in updates) {
+      let found = false;
+      for (let i = 1; i < settingsData.length; i++) {
+        if (String(settingsData[i][0]) === key) {
+          settingsSheet.getRange(i + 1, 2).setValue(updates[key]);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        settingsSheet.appendRow([key, updates[key]]);
+      }
+    }
+  }
+  
+  // Clear settings cache
+  CacheService.getScriptCache().remove("settings_map");
+  
+  return { status: "success", message: "OpenAI settings updated" };
+}
+
+function adminOpenAISettingsTest(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_openai_settings_test" });
+  
+  const result = callOpenAI_(
+    "You are a helpful assistant.",
+    "Reply with 'API Connected!' if you receive this.",
+    { maxTokens: 50 }
+  );
+  
+  if (result.ok) {
+    return { status: "success", message: "OpenAI API connected!", response: result.content, model: result.model };
+  }
+  return { status: "error", message: result.error };
+}
+
+/* =========================
+   ADMIN AI PRODUCTS
+========================= */
+function adminAiProductsGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_ai_products_get" });
+  
+  const sheet = ss.getSheetByName("AI_Products");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const products = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    products.push({
+      id: data[i][0],
+      name: data[i][1],
+      description: data[i][2],
+      category: data[i][3],
+      model: data[i][4],
+      system_prompt: data[i][5],
+      price_per_use: data[i][6],
+      status: data[i][7],
+      created_at: data[i][8],
+      updated_at: data[i][9]
+    });
+  }
+  
+  return { status: "success", data: products };
+}
+
+function adminAiProductsPost(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_ai_products_post" });
+  
+  const sheet = ensureAISheet_("AI_Products", ["id", "name", "description", "category", "model", "system_prompt", "price_per_use", "status", "created_at", "updated_at"]);
+  
+  const newId = "AIP-" + Date.now();
+  const now = toISODate_();
+  
+  sheet.appendRow([
+    newId,
+    d.name || "",
+    d.description || "",
+    d.category || "General",
+    d.model || "gpt-4",
+    d.system_prompt || "",
+    Number(d.price_per_use) || 1,
+    d.status || "Active",
+    now,
+    now
+  ]);
+  
+  return { status: "success", id: newId, message: "AI Product created" };
+}
+
+function adminAiProductsDetailGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_ai_products_detail_get" });
+  
+  const sheet = ss.getSheetByName("AI_Products");
+  if (!sheet) return { status: "error", message: "AI Products sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const productId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === productId) {
+      // Get templates for this product
+      const templates = [];
+      const templatesSheet = ss.getSheetByName("AI_Product_Templates");
+      if (templatesSheet) {
+        const tData = templatesSheet.getDataRange().getValues();
+        for (let j = 1; j < tData.length; j++) {
+          if (String(tData[j][1]) === productId) {
+            templates.push({
+              id: tData[j][0],
+              template_name: tData[j][2],
+              prompt_template: tData[j][3],
+              output_format: tData[j][4],
+              status: tData[j][5]
+            });
+          }
+        }
+      }
+      
+      // Get fields for this product
+      const fields = [];
+      const fieldsSheet = ss.getSheetByName("AI_Product_Fields");
+      if (fieldsSheet) {
+        const fData = fieldsSheet.getDataRange().getValues();
+        for (let j = 1; j < fData.length; j++) {
+          if (String(fData[j][1]) === productId) {
+            let options = [];
+            try { options = fData[j][6] ? JSON.parse(fData[j][6]) : []; } catch(e) {}
+            fields.push({
+              id: fData[j][0],
+              field_name: fData[j][2],
+              field_label: fData[j][3],
+              field_type: fData[j][4],
+              required: fData[j][5] === true || fData[j][5] === "true",
+              options: options,
+              placeholder: fData[j][7],
+              order: fData[j][8]
+            });
+          }
+        }
+        fields.sort((a, b) => (a.order || 0) - (b.order || 0));
+      }
+      
+      return {
+        status: "success",
+        data: {
+          id: data[i][0],
+          name: data[i][1],
+          description: data[i][2],
+          category: data[i][3],
+          model: data[i][4],
+          system_prompt: data[i][5],
+          price_per_use: data[i][6],
+          status: data[i][7],
+          created_at: data[i][8],
+          updated_at: data[i][9],
+          templates: templates,
+          fields: fields
+        }
+      };
+    }
+  }
+  
+  return { status: "error", message: "Product not found" };
+}
+
+function adminAiProductsPut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_ai_products_put" });
+  
+  const sheet = ss.getSheetByName("AI_Products");
+  if (!sheet) return { status: "error", message: "AI Products sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const productId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === productId) {
+      const row = i + 1;
+      if (d.name !== undefined) sheet.getRange(row, 2).setValue(d.name);
+      if (d.description !== undefined) sheet.getRange(row, 3).setValue(d.description);
+      if (d.category !== undefined) sheet.getRange(row, 4).setValue(d.category);
+      if (d.model !== undefined) sheet.getRange(row, 5).setValue(d.model);
+      if (d.system_prompt !== undefined) sheet.getRange(row, 6).setValue(d.system_prompt);
+      if (d.price_per_use !== undefined) sheet.getRange(row, 7).setValue(Number(d.price_per_use));
+      if (d.status !== undefined) sheet.getRange(row, 8).setValue(d.status);
+      sheet.getRange(row, 10).setValue(toISODate_());
+      
+      return { status: "success", message: "Product updated" };
+    }
+  }
+  
+  return { status: "error", message: "Product not found" };
+}
+
+function adminAiProductsDelete(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_ai_products_delete" });
+  
+  const sheet = ss.getSheetByName("AI_Products");
+  if (!sheet) return { status: "error", message: "AI Products sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const productId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === productId) {
+      sheet.deleteRow(i + 1);
+      return { status: "success", message: "Product deleted" };
+    }
+  }
+  
+  return { status: "error", message: "Product not found" };
+}
+
+/* =========================
+   ADMIN AI PRODUCT TEMPLATES
+========================= */
+function adminAiProductTemplatesGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_ai_product_templates_get" });
+  
+  const sheet = ss.getSheetByName("AI_Product_Templates");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const templates = [];
+  const productId = d.product_id ? String(d.product_id) : null;
+  
+  for (let i = 1; i < data.length; i++) {
+    if (!productId || String(data[i][1]) === productId) {
+      templates.push({
+        id: data[i][0],
+        product_id: data[i][1],
+        template_name: data[i][2],
+        prompt_template: data[i][3],
+        output_format: data[i][4],
+        status: data[i][5],
+        created_at: data[i][6]
+      });
+    }
+  }
+  
+  return { status: "success", data: templates };
+}
+
+function adminAiProductTemplatesPost(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_ai_product_templates_post" });
+  
+  const sheet = ensureAISheet_("AI_Product_Templates", ["id", "product_id", "template_name", "prompt_template", "output_format", "status", "created_at"]);
+  
+  const newId = "TPL-" + Date.now();
+  
+  sheet.appendRow([
+    newId,
+    d.product_id || "",
+    d.template_name || "",
+    d.prompt_template || "",
+    d.output_format || "text",
+    d.status || "Active",
+    toISODate_()
+  ]);
+  
+  return { status: "success", id: newId, message: "Template created" };
+}
+
+function adminTemplatePut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_template_put" });
+  
+  const sheet = ss.getSheetByName("AI_Product_Templates");
+  if (!sheet) return { status: "error", message: "Templates sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const templateId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === templateId) {
+      const row = i + 1;
+      if (d.template_name !== undefined) sheet.getRange(row, 3).setValue(d.template_name);
+      if (d.prompt_template !== undefined) sheet.getRange(row, 4).setValue(d.prompt_template);
+      if (d.output_format !== undefined) sheet.getRange(row, 5).setValue(d.output_format);
+      if (d.status !== undefined) sheet.getRange(row, 6).setValue(d.status);
+      
+      return { status: "success", message: "Template updated" };
+    }
+  }
+  
+  return { status: "error", message: "Template not found" };
+}
+
+function adminTemplateDelete(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_template_delete" });
+  
+  const sheet = ss.getSheetByName("AI_Product_Templates");
+  if (!sheet) return { status: "error", message: "Templates sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const templateId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === templateId) {
+      sheet.deleteRow(i + 1);
+      return { status: "success", message: "Template deleted" };
+    }
+  }
+  
+  return { status: "error", message: "Template not found" };
+}
+
+/* =========================
+   ADMIN AI PRODUCT FIELDS
+========================= */
+function adminAiProductFieldsGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_ai_product_fields_get" });
+  
+  const sheet = ss.getSheetByName("AI_Product_Fields");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const fields = [];
+  const productId = d.product_id ? String(d.product_id) : null;
+  
+  for (let i = 1; i < data.length; i++) {
+    if (!productId || String(data[i][1]) === productId) {
+      let options = [];
+      try { options = data[i][6] ? JSON.parse(data[i][6]) : []; } catch(e) {}
+      fields.push({
+        id: data[i][0],
+        product_id: data[i][1],
+        field_name: data[i][2],
+        field_label: data[i][3],
+        field_type: data[i][4],
+        required: data[i][5] === true || data[i][5] === "true",
+        options: options,
+        placeholder: data[i][7],
+        order: data[i][8]
+      });
+    }
+  }
+  
+  fields.sort((a, b) => (a.order || 0) - (b.order || 0));
+  return { status: "success", data: fields };
+}
+
+function adminAiProductFieldsPost(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_ai_product_fields_post" });
+  
+  const sheet = ensureAISheet_("AI_Product_Fields", ["id", "product_id", "field_name", "field_label", "field_type", "required", "options", "placeholder", "order"]);
+  
+  const newId = "FLD-" + Date.now();
+  
+  sheet.appendRow([
+    newId,
+    d.product_id || "",
+    d.field_name || "",
+    d.field_label || "",
+    d.field_type || "text",
+    d.required === true || d.required === "true",
+    d.options ? JSON.stringify(d.options) : "",
+    d.placeholder || "",
+    Number(d.order) || 0
+  ]);
+  
+  return { status: "success", id: newId, message: "Field created" };
+}
+
+function adminFieldPut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_field_put" });
+  
+  const sheet = ss.getSheetByName("AI_Product_Fields");
+  if (!sheet) return { status: "error", message: "Fields sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const fieldId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === fieldId) {
+      const row = i + 1;
+      if (d.field_name !== undefined) sheet.getRange(row, 3).setValue(d.field_name);
+      if (d.field_label !== undefined) sheet.getRange(row, 4).setValue(d.field_label);
+      if (d.field_type !== undefined) sheet.getRange(row, 5).setValue(d.field_type);
+      if (d.required !== undefined) sheet.getRange(row, 6).setValue(d.required === true || d.required === "true");
+      if (d.options !== undefined) sheet.getRange(row, 7).setValue(JSON.stringify(d.options));
+      if (d.placeholder !== undefined) sheet.getRange(row, 8).setValue(d.placeholder);
+      if (d.order !== undefined) sheet.getRange(row, 9).setValue(Number(d.order));
+      
+      return { status: "success", message: "Field updated" };
+    }
+  }
+  
+  return { status: "error", message: "Field not found" };
+}
+
+function adminFieldDelete(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_field_delete" });
+  
+  const sheet = ss.getSheetByName("AI_Product_Fields");
+  if (!sheet) return { status: "error", message: "Fields sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const fieldId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === fieldId) {
+      sheet.deleteRow(i + 1);
+      return { status: "success", message: "Field deleted" };
+    }
+  }
+  
+  return { status: "error", message: "Field not found" };
+}
+
+/* =========================
+   ADMIN MEMBERSHIP PLANS
+========================= */
+function adminMembershipPlansGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_membership_plans_get" });
+  
+  const sheet = ss.getSheetByName("Membership_Plans");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const plans = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    let features = [];
+    try { features = data[i][6] ? JSON.parse(data[i][6]) : []; } catch(e) {}
+    plans.push({
+      id: data[i][0],
+      name: data[i][1],
+      description: data[i][2],
+      price: data[i][3],
+      billing_period: data[i][4],
+      credits_per_period: data[i][5],
+      features: features,
+      status: data[i][7],
+      created_at: data[i][8]
+    });
+  }
+  
+  return { status: "success", data: plans };
+}
+
+function adminMembershipPlansPost(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_membership_plans_post" });
+  
+  const sheet = ensureAISheet_("Membership_Plans", ["id", "name", "description", "price", "billing_period", "credits_per_period", "features_json", "status", "created_at"]);
+  
+  const newId = "PLAN-" + (d.name || "").toUpperCase().replace(/[^A-Z0-9]/g, "").substring(0, 10) || Date.now();
+  
+  sheet.appendRow([
+    newId,
+    d.name || "",
+    d.description || "",
+    Number(d.price) || 0,
+    d.billing_period || "monthly",
+    d.credits_per_period === "unlimited" ? "unlimited" : (Number(d.credits_per_period) || 50),
+    d.features ? JSON.stringify(d.features) : "[]",
+    d.status || "Active",
+    toISODate_()
+  ]);
+  
+  return { status: "success", id: newId, message: "Membership plan created" };
+}
+
+function adminMembershipPlansPut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_membership_plans_put" });
+  
+  const sheet = ss.getSheetByName("Membership_Plans");
+  if (!sheet) return { status: "error", message: "Membership Plans sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const planId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === planId) {
+      const row = i + 1;
+      if (d.name !== undefined) sheet.getRange(row, 2).setValue(d.name);
+      if (d.description !== undefined) sheet.getRange(row, 3).setValue(d.description);
+      if (d.price !== undefined) sheet.getRange(row, 4).setValue(Number(d.price));
+      if (d.billing_period !== undefined) sheet.getRange(row, 5).setValue(d.billing_period);
+      if (d.credits_per_period !== undefined) sheet.getRange(row, 6).setValue(d.credits_per_period === "unlimited" ? "unlimited" : Number(d.credits_per_period));
+      if (d.features !== undefined) sheet.getRange(row, 7).setValue(JSON.stringify(d.features));
+      if (d.status !== undefined) sheet.getRange(row, 8).setValue(d.status);
+      
+      return { status: "success", message: "Plan updated" };
+    }
+  }
+  
+  return { status: "error", message: "Plan not found" };
+}
+
+function adminMembershipPlansDelete(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_membership_plans_delete" });
+  
+  const sheet = ss.getSheetByName("Membership_Plans");
+  if (!sheet) return { status: "error", message: "Membership Plans sheet not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const planId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === planId) {
+      sheet.deleteRow(i + 1);
+      return { status: "success", message: "Plan deleted" };
+    }
+  }
+  
+  return { status: "error", message: "Plan not found" };
+}
+
+/* =========================
+   ADMIN MEMBERS MANAGEMENT
+========================= */
+function adminMembersGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_members_get" });
+  
+  const usersSheet = ss.getSheetByName("Users");
+  const subsSheet = ss.getSheetByName("Member_Subscriptions");
+  
+  if (!usersSheet) return { status: "success", data: [] };
+  
+  const usersData = usersSheet.getDataRange().getValues();
+  const subsData = subsSheet ? subsSheet.getDataRange().getValues() : [];
+  
+  // Build subscription map
+  const subsMap = {};
+  for (let i = 1; i < subsData.length; i++) {
+    const userId = String(subsData[i][1]);
+    if (!subsMap[userId] || String(subsData[i][3]).toLowerCase() === "active") {
+      subsMap[userId] = {
+        plan_id: subsData[i][2],
+        status: subsData[i][3],
+        credits_balance: subsData[i][4],
+        credits_used: subsData[i][5],
+        end_date: subsData[i][7]
+      };
+    }
+  }
+  
+  const members = [];
+  for (let i = 1; i < usersData.length; i++) {
+    const userId = String(usersData[i][0]);
+    const sub = subsMap[userId] || null;
+    members.push({
+      id: userId,
+      email: usersData[i][1],
+      name: usersData[i][2],
+      phone: usersData[i][3],
+      created_at: usersData[i][6],
+      subscription: sub
+    });
+  }
+  
+  return { status: "success", data: members };
+}
+
+function adminMembersDetailGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_members_detail_get" });
+  
+  const usersSheet = ss.getSheetByName("Users");
+  if (!usersSheet) return { status: "error", message: "Users sheet not found" };
+  
+  const usersData = usersSheet.getDataRange().getValues();
+  const userId = String(d.id || d.user_id);
+  
+  let user = null;
+  for (let i = 1; i < usersData.length; i++) {
+    if (String(usersData[i][0]) === userId) {
+      user = {
+        id: usersData[i][0],
+        email: usersData[i][1],
+        name: usersData[i][2],
+        phone: usersData[i][3],
+        created_at: usersData[i][6]
+      };
+      break;
+    }
+  }
+  
+  if (!user) return { status: "error", message: "User not found" };
+  
+  // Get subscription
+  const sub = getMemberSubscription_(userId);
+  user.subscription = sub;
+  
+  // Get generation history (last 20)
+  const historySheet = ss.getSheetByName("Generation_History");
+  const history = [];
+  if (historySheet) {
+    const hData = historySheet.getDataRange().getValues();
+    for (let i = hData.length - 1; i >= 1 && history.length < 20; i--) {
+      if (String(hData[i][1]) === userId) {
+        history.push({
+          id: hData[i][0],
+          product_id: hData[i][2],
+          tokens_used: hData[i][6],
+          credits_used: hData[i][7],
+          status: hData[i][8],
+          created_at: hData[i][10]
+        });
+      }
+    }
+  }
+  user.recent_history = history;
+  
+  return { status: "success", data: user };
+}
+
+function adminMembersSubscriptionPut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_members_subscription_put" });
+  
+  const sheet = ensureAISheet_("Member_Subscriptions", ["id", "user_id", "plan_id", "status", "credits_balance", "credits_used_this_period", "subscription_start", "subscription_end", "created_at", "updated_at"]);
+  
+  const userId = String(d.user_id || d.id);
+  const data = sheet.getDataRange().getValues();
+  
+  // Find existing subscription
+  let existingRow = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]) === userId) {
+      existingRow = i + 1;
+      break;
+    }
+  }
+  
+  const now = toISODate_();
+  const endDate = d.subscription_end || "";
+  
+  if (existingRow > 0) {
+    // Update existing
+    if (d.plan_id !== undefined) sheet.getRange(existingRow, 3).setValue(d.plan_id);
+    if (d.status !== undefined) sheet.getRange(existingRow, 4).setValue(d.status);
+    if (d.credits_balance !== undefined) sheet.getRange(existingRow, 5).setValue(Number(d.credits_balance));
+    if (endDate) sheet.getRange(existingRow, 8).setValue(endDate);
+    sheet.getRange(existingRow, 10).setValue(now);
+  } else {
+    // Create new subscription
+    sheet.appendRow([
+      "SUB-" + Date.now(),
+      userId,
+      d.plan_id || "PLAN-FREE",
+      d.status || "active",
+      Number(d.credits_balance) || 50,
+      0,
+      now,
+      endDate,
+      now,
+      now
+    ]);
+  }
+  
+  return { status: "success", message: "Subscription updated" };
+}
+
+function adminMembersCreditsGrant(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_members_credits_grant" });
+  
+  const userId = String(d.user_id || d.id);
+  const amount = Number(d.amount) || 0;
+  
+  if (amount <= 0) return { status: "error", message: "Amount must be positive" };
+  
+  const result = grantCredits_(userId, amount);
+  if (!result.ok) {
+    // Try creating a subscription first
+    adminMembersSubscriptionPut({ user_id: userId, plan_id: "PLAN-FREE", status: "active", credits_balance: amount });
+    return { status: "success", message: "Credits granted (new subscription created)", new_balance: amount };
+  }
+  
+  return { status: "success", message: "Credits granted", new_balance: result.newBalance };
+}
+
+function adminMembersCreditsReset(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_members_credits_reset" });
+  
+  const userId = String(d.user_id || d.id);
+  const sub = getMemberSubscription_(userId);
+  
+  if (!sub) return { status: "error", message: "No active subscription" };
+  
+  const sheet = ss.getSheetByName("Member_Subscriptions");
+  sheet.getRange(sub.rowIndex, 6).setValue(0); // Reset credits_used
+  sheet.getRange(sub.rowIndex, 10).setValue(toISODate_());
+  
+  return { status: "success", message: "Credits usage reset" };
+}
+
+/* =========================
+   ADMIN GENERATION HISTORY
+========================= */
+function adminGenerationHistoriesGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_generation_histories_get" });
+  
+  const sheet = ss.getSheetByName("Generation_History");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const history = [];
+  const limit = Number(d.limit) || 100;
+  const userId = d.user_id ? String(d.user_id) : null;
+  
+  for (let i = data.length - 1; i >= 1 && history.length < limit; i--) {
+    if (!userId || String(data[i][1]) === userId) {
+      history.push({
+        id: data[i][0],
+        user_id: data[i][1],
+        product_id: data[i][2],
+        template_id: data[i][3],
+        tokens_used: data[i][6],
+        credits_used: data[i][7],
+        status: data[i][8],
+        error_message: data[i][9],
+        created_at: data[i][10]
+      });
+    }
+  }
+  
+  return { status: "success", data: history };
+}
+
+/* =========================
+   ADMIN DASHBOARD SUMMARY
+========================= */
+function adminDashboardSummaryGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_dashboard_summary_get" });
+  
+  const usersSheet = ss.getSheetByName("Users");
+  const subsSheet = ss.getSheetByName("Member_Subscriptions");
+  const historySheet = ss.getSheetByName("Generation_History");
+  const productsSheet = ss.getSheetByName("AI_Products");
+  
+  const totalUsers = usersSheet ? Math.max(0, usersSheet.getLastRow() - 1) : 0;
+  const totalProducts = productsSheet ? Math.max(0, productsSheet.getLastRow() - 1) : 0;
+  
+  let activeSubscriptions = 0;
+  let totalCreditsUsed = 0;
+  if (subsSheet && subsSheet.getLastRow() > 1) {
+    const subsData = subsSheet.getDataRange().getValues();
+    for (let i = 1; i < subsData.length; i++) {
+      if (String(subsData[i][3]).toLowerCase() === "active") activeSubscriptions++;
+      totalCreditsUsed += Number(subsData[i][5]) || 0;
+    }
+  }
+  
+  let totalGenerations = 0;
+  let todayGenerations = 0;
+  const today = toISODate_();
+  if (historySheet && historySheet.getLastRow() > 1) {
+    totalGenerations = historySheet.getLastRow() - 1;
+    const hData = historySheet.getDataRange().getValues();
+    for (let i = 1; i < hData.length; i++) {
+      if (String(hData[i][10]).startsWith(today)) todayGenerations++;
+    }
+  }
+  
+  return {
+    status: "success",
+    data: {
+      total_users: totalUsers,
+      active_subscriptions: activeSubscriptions,
+      total_products: totalProducts,
+      total_generations: totalGenerations,
+      today_generations: todayGenerations,
+      total_credits_used: totalCreditsUsed
+    }
+  };
+}
+
+/* =========================
+   ADMIN CONTENT MANAGEMENT
+========================= */
+function adminContentGet(d) {
+  requireAdminSession_(d, { allowDemo: true, actionName: "admin_content_get" });
+  
+  const sheet = ss.getSheetByName("Content");
+  if (!sheet) return { status: "success", data: {} };
+  
+  const data = sheet.getDataRange().getValues();
+  const content = {};
+  
+  for (let i = 1; i < data.length; i++) {
+    const key = String(data[i][0]);
+    if (key) content[key] = data[i][1];
+  }
+  
+  return { status: "success", data: content };
+}
+
+function adminContentPut(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_content_put" });
+  
+  const sheet = ensureAISheet_("Content", ["key", "value", "updated_at"]);
+  const data = sheet.getDataRange().getValues();
+  const updates = d.payload || d.content || {};
+  
+  for (const key in updates) {
+    let found = false;
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === key) {
+        sheet.getRange(i + 1, 2).setValue(updates[key]);
+        sheet.getRange(i + 1, 3).setValue(toISODate_());
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      sheet.appendRow([key, updates[key], toISODate_()]);
+    }
+  }
+  
+  return { status: "success", message: "Content updated" };
+}
+
+/* =========================
+   ADMIN SEED DUMMY DATA
+========================= */
+function adminSeedDummyData(d) {
+  requireAdminSession_(d, { allowDemo: false, actionName: "admin_seed_dummy_data" });
+  
+  // Seed AI Products
+  const productsSheet = ensureAISheet_("AI_Products", ["id", "name", "description", "category", "model", "system_prompt", "price_per_use", "status", "created_at", "updated_at"]);
+  if (productsSheet.getLastRow() <= 1) {
+    const now = toISODate_();
+    productsSheet.appendRow(["AIP-001", "Blog Writer", "Generate SEO-optimized blog articles", "Content", "gpt-4", "You are a professional blog writer. Write engaging, SEO-friendly content.", 5, "Active", now, now]);
+    productsSheet.appendRow(["AIP-002", "Social Media Post", "Create viral social media content", "Marketing", "gpt-3.5-turbo", "You are a social media expert. Create engaging posts.", 2, "Active", now, now]);
+    productsSheet.appendRow(["AIP-003", "Email Copy", "Write compelling email copy", "Marketing", "gpt-4", "You are an email marketing specialist. Write persuasive emails.", 3, "Active", now, now]);
+  }
+  
+  // Seed Membership Plans
+  const plansSheet = ensureAISheet_("Membership_Plans", ["id", "name", "description", "price", "billing_period", "credits_per_period", "features_json", "status", "created_at"]);
+  if (plansSheet.getLastRow() <= 1) {
+    plansSheet.appendRow(["PLAN-FREE", "Free", "Get started with AI tools", 0, "monthly", 50, '["50 credits/month", "Basic AI tools"]', "Active", toISODate_()]);
+    plansSheet.appendRow(["PLAN-PRO", "Pro", "For professionals", 99000, "monthly", 500, '["500 credits/month", "All AI tools", "Priority support"]', "Active", toISODate_()]);
+    plansSheet.appendRow(["PLAN-ENTERPRISE", "Enterprise", "Unlimited for teams", 499000, "monthly", "unlimited", '["Unlimited credits", "All AI tools", "24/7 support", "Custom models"]', "Active", toISODate_()]);
+  }
+  
+  // Seed Product Fields for Blog Writer
+  const fieldsSheet = ensureAISheet_("AI_Product_Fields", ["id", "product_id", "field_name", "field_label", "field_type", "required", "options", "placeholder", "order"]);
+  if (fieldsSheet.getLastRow() <= 1) {
+    fieldsSheet.appendRow(["FLD-001", "AIP-001", "topic", "Blog Topic", "text", true, "", "Enter your blog topic...", 1]);
+    fieldsSheet.appendRow(["FLD-002", "AIP-001", "keywords", "Target Keywords", "text", false, "", "keyword1, keyword2", 2]);
+    fieldsSheet.appendRow(["FLD-003", "AIP-001", "tone", "Writing Tone", "select", true, '["Professional", "Casual", "Friendly", "Formal"]', "", 3]);
+    fieldsSheet.appendRow(["FLD-004", "AIP-001", "length", "Article Length", "select", true, '["Short (500 words)", "Medium (1000 words)", "Long (2000 words)"]', "", 4]);
+  }
+  
+  return { status: "success", message: "Dummy data seeded successfully" };
+}
+
+/* =========================
+   MEMBER REGISTRATION
+========================= */
+function memberRegister(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  const name = String(d.name || "").trim();
+  const password = String(d.password || "").trim();
+  const phone = String(d.phone || "").trim();
+  
+  if (!email || !name || !password) {
+    return { status: "error", message: "Email, name, and password are required" };
+  }
+  
+  // Check if user already exists
+  const usersSheet = mustSheet_("Users");
+  const usersData = usersSheet.getDataRange().getValues();
+  
+  for (let i = 1; i < usersData.length; i++) {
+    if (String(usersData[i][1]).toLowerCase() === email) {
+      return { status: "error", message: "Email already registered" };
+    }
+  }
+  
+  // Create new user
+  const userId = "USR-" + Date.now();
+  const hashedPassword = hashPassword_(password);
+  const now = toISODate_();
+  
+  usersSheet.appendRow([userId, email, name, phone, hashedPassword, "member", now, now]);
+  
+  // Create free subscription
+  const subsSheet = ensureAISheet_("Member_Subscriptions", ["id", "user_id", "plan_id", "status", "credits_balance", "credits_used_this_period", "subscription_start", "subscription_end", "created_at", "updated_at"]);
+  subsSheet.appendRow(["SUB-" + Date.now(), userId, "PLAN-FREE", "active", 50, 0, now, "", now, now]);
+  
+  return { status: "success", message: "Registration successful", user_id: userId };
+}
+
+/* =========================
+   MEMBER DASHBOARD
+========================= */
+function memberDashboardGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  // Get subscription
+  const sub = getMemberSubscription_(userId);
+  
+  // Get plan details if subscription exists
+  let planDetails = null;
+  if (sub && sub.planId) {
+    const plansSheet = ss.getSheetByName("Membership_Plans");
+    if (plansSheet) {
+      const pData = plansSheet.getDataRange().getValues();
+      for (let i = 1; i < pData.length; i++) {
+        if (String(pData[i][0]) === sub.planId) {
+          planDetails = { name: pData[i][1], credits_per_period: pData[i][5] };
+          break;
+        }
+      }
+    }
+  }
+  
+  // Get recent history count
+  let recentCount = 0;
+  const historySheet = ss.getSheetByName("Generation_History");
+  if (historySheet && historySheet.getLastRow() > 1) {
+    const hData = historySheet.getDataRange().getValues();
+    const today = toISODate_();
+    for (let i = 1; i < hData.length; i++) {
+      if (String(hData[i][1]) === userId && String(hData[i][10]).startsWith(today)) {
+        recentCount++;
+      }
+    }
+  }
+  
+  return {
+    status: "success",
+    data: {
+      credits_balance: sub ? sub.creditsBalance : 0,
+      credits_used: sub ? sub.creditsUsed : 0,
+      plan: planDetails,
+      subscription_status: sub ? sub.status : "none",
+      subscription_end: sub ? sub.endDate : null,
+      today_generations: recentCount
+    }
+  };
+}
+
+/* =========================
+   MEMBER AI PRODUCTS
+========================= */
+function memberAiProductsGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const sheet = ss.getSheetByName("AI_Products");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const products = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][7]).toLowerCase() === "active") {
+      products.push({
+        id: data[i][0],
+        name: data[i][1],
+        description: data[i][2],
+        category: data[i][3],
+        price_per_use: data[i][6]
+      });
+    }
+  }
+  
+  return { status: "success", data: products };
+}
+
+function memberAiProductDetailGet(d) {
+  const productId = String(d.product_id || d.id);
+  
+  // Get product
+  const productSheet = ss.getSheetByName("AI_Products");
+  if (!productSheet) return { status: "error", message: "Product not found" };
+  
+  const productData = productSheet.getDataRange().getValues();
+  let product = null;
+  
+  for (let i = 1; i < productData.length; i++) {
+    if (String(productData[i][0]) === productId && String(productData[i][7]).toLowerCase() === "active") {
+      product = {
+        id: productData[i][0],
+        name: productData[i][1],
+        description: productData[i][2],
+        category: productData[i][3],
+        price_per_use: productData[i][6]
+      };
+      break;
+    }
+  }
+  
+  if (!product) return { status: "error", message: "Product not found" };
+  
+  // Get fields for this product
+  const fieldsSheet = ss.getSheetByName("AI_Product_Fields");
+  const fields = [];
+  
+  if (fieldsSheet) {
+    const fieldsData = fieldsSheet.getDataRange().getValues();
+    for (let i = 1; i < fieldsData.length; i++) {
+      if (String(fieldsData[i][1]) === productId) {
+        let options = [];
+        try { options = fieldsData[i][6] ? JSON.parse(fieldsData[i][6]) : []; } catch(e) {}
+        fields.push({
+          name: fieldsData[i][2],
+          label: fieldsData[i][3],
+          type: fieldsData[i][4],
+          required: fieldsData[i][5] === true || fieldsData[i][5] === "true",
+          options: options,
+          placeholder: fieldsData[i][7],
+          order: fieldsData[i][8]
+        });
+      }
+    }
+    fields.sort((a, b) => (a.order || 0) - (b.order || 0));
+  }
+  
+  // Get templates
+  const templatesSheet = ss.getSheetByName("AI_Product_Templates");
+  const templates = [];
+  
+  if (templatesSheet) {
+    const tData = templatesSheet.getDataRange().getValues();
+    for (let i = 1; i < tData.length; i++) {
+      if (String(tData[i][1]) === productId && String(tData[i][5]).toLowerCase() === "active") {
+        templates.push({
+          id: tData[i][0],
+          name: tData[i][2],
+          output_format: tData[i][4]
+        });
+      }
+    }
+  }
+  
+  return { status: "success", product: product, fields: fields, templates: templates };
+}
+
+/* =========================
+   MEMBER AI GENERATION
+========================= */
+function memberAiGeneratePost(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  // Get user
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  // Check subscription & credits
+  const sub = getMemberSubscription_(userId);
+  if (!sub) return { status: "error", message: "No active subscription. Please subscribe first." };
+  
+  // Get product
+  const productSheet = ss.getSheetByName("AI_Products");
+  if (!productSheet) return { status: "error", message: "Product not found" };
+  
+  const productData = productSheet.getDataRange().getValues();
+  let product = null;
+  
+  for (let i = 1; i < productData.length; i++) {
+    if (String(productData[i][0]) === String(d.product_id)) {
+      product = {
+        id: productData[i][0],
+        name: productData[i][1],
+        systemPrompt: productData[i][5],
+        model: productData[i][4],
+        pricePerUse: Number(productData[i][6]) || 1
+      };
+      break;
+    }
+  }
+  
+  if (!product) return { status: "error", message: "Product not found" };
+  
+  // Check credits (skip for unlimited plans)
+  if (sub.creditsBalance !== "unlimited" && sub.creditsBalance < product.pricePerUse) {
+    return { status: "error", message: "Insufficient credits. You need " + product.pricePerUse + " credits." };
+  }
+  
+  // Build user prompt from input data
+  const inputData = d.input || {};
+  let userPrompt = d.prompt || "";
+  
+  // If template exists, use it
+  if (d.template_id) {
+    const templatesSheet = ss.getSheetByName("AI_Product_Templates");
+    if (templatesSheet) {
+      const templatesData = templatesSheet.getDataRange().getValues();
+      for (let i = 1; i < templatesData.length; i++) {
+        if (String(templatesData[i][0]) === String(d.template_id)) {
+          userPrompt = String(templatesData[i][3]);
+          // Replace placeholders
+          for (let key in inputData) {
+            userPrompt = userPrompt.replace(new RegExp("\\{" + key + "\\}", "g"), inputData[key]);
+          }
+          break;
+        }
+      }
+    }
+  } else if (!userPrompt) {
+    // Build prompt from input fields
+    const parts = [];
+    for (let key in inputData) {
+      parts.push(key + ": " + inputData[key]);
+    }
+    userPrompt = parts.join("\n");
+  }
+  
+  if (!userPrompt) return { status: "error", message: "No prompt provided" };
+  
+  // Call OpenAI
+  const result = callOpenAI_(product.systemPrompt || "You are a helpful AI assistant.", userPrompt, { model: product.model });
+  
+  // Log generation
+  const historySheet = ensureAISheet_("Generation_History", ["id", "user_id", "product_id", "template_id", "input_data", "output_result", "tokens_used", "credits_used", "status", "error_message", "created_at"]);
+  
+  const historyId = "GEN-" + Date.now();
+  
+  if (result.ok) {
+    // Deduct credits (unless unlimited)
+    if (sub.creditsBalance !== "unlimited") {
+      deductCredits_(userId, product.pricePerUse);
+    }
+    
+    // Save history
+    historySheet.appendRow([
+      historyId,
+      userId,
+      product.id,
+      d.template_id || "",
+      JSON.stringify(inputData),
+      result.content,
+      result.tokens || 0,
+      product.pricePerUse,
+      "success",
+      "",
+      toISODate_()
+    ]);
+    
+    const newBalance = sub.creditsBalance === "unlimited" ? "unlimited" : (sub.creditsBalance - product.pricePerUse);
+    
+    return {
+      status: "success",
+      history_id: historyId,
+      result: result.content,
+      tokens_used: result.tokens,
+      credits_used: product.pricePerUse,
+      credits_remaining: newBalance
+    };
+  } else {
+    // Log failed attempt
+    historySheet.appendRow([
+      historyId,
+      userId,
+      product.id,
+      d.template_id || "",
+      JSON.stringify(inputData),
+      "",
+      0,
+      0,
+      "failed",
+      result.error,
+      toISODate_()
+    ]);
+    
+    return { status: "error", message: "Generation failed: " + result.error };
+  }
+}
+
+/* =========================
+   MEMBER HISTORY
+========================= */
+function memberHistoryGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sheet = ss.getSheetByName("Generation_History");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const history = [];
+  const limit = Number(d.limit) || 50;
+  
+  // Get product names map
+  const productNames = {};
+  const productsSheet = ss.getSheetByName("AI_Products");
+  if (productsSheet) {
+    const pData = productsSheet.getDataRange().getValues();
+    for (let i = 1; i < pData.length; i++) {
+      productNames[String(pData[i][0])] = pData[i][1];
+    }
+  }
+  
+  for (let i = data.length - 1; i >= 1 && history.length < limit; i--) {
+    if (String(data[i][1]) === userId) {
+      history.push({
+        id: data[i][0],
+        product_id: data[i][2],
+        product_name: productNames[String(data[i][2])] || data[i][2],
+        tokens_used: data[i][6],
+        credits_used: data[i][7],
+        status: data[i][8],
+        created_at: data[i][10]
+      });
+    }
+  }
+  
+  return { status: "success", data: history };
+}
+
+function memberHistoryDetailGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sheet = ss.getSheetByName("Generation_History");
+  if (!sheet) return { status: "error", message: "History not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const historyId = String(d.id || d.history_id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === historyId && String(data[i][1]) === userId) {
+      let inputData = {};
+      try { inputData = JSON.parse(data[i][4]); } catch(e) {}
+      
+      return {
+        status: "success",
+        data: {
+          id: data[i][0],
+          product_id: data[i][2],
+          template_id: data[i][3],
+          input_data: inputData,
+          output_result: data[i][5],
+          tokens_used: data[i][6],
+          credits_used: data[i][7],
+          status: data[i][8],
+          error_message: data[i][9],
+          created_at: data[i][10]
+        }
+      };
+    }
+  }
+  
+  return { status: "error", message: "History not found" };
+}
+
+/* =========================
+   MEMBER SAVED RESULTS
+========================= */
+function memberHistorySavePost(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sheet = ensureAISheet_("Saved_Results", ["id", "user_id", "history_id", "title", "content", "tags", "is_favorite", "created_at", "updated_at"]);
+  
+  const newId = "SAVE-" + Date.now();
+  const now = toISODate_();
+  
+  sheet.appendRow([
+    newId,
+    userId,
+    d.history_id || "",
+    d.title || "Untitled",
+    d.content || "",
+    d.tags || "",
+    d.is_favorite === true,
+    now,
+    now
+  ]);
+  
+  return { status: "success", id: newId, message: "Result saved" };
+}
+
+function memberSavedResultsGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sheet = ss.getSheetByName("Saved_Results");
+  if (!sheet) return { status: "success", data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const results = [];
+  
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][1]) === userId) {
+      results.push({
+        id: data[i][0],
+        history_id: data[i][2],
+        title: data[i][3],
+        content: data[i][4],
+        tags: data[i][5],
+        is_favorite: data[i][6] === true,
+        created_at: data[i][7]
+      });
+    }
+  }
+  
+  return { status: "success", data: results };
+}
+
+function memberSavedResultsPut(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sheet = ss.getSheetByName("Saved_Results");
+  if (!sheet) return { status: "error", message: "Saved results not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const resultId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === resultId && String(data[i][1]) === userId) {
+      const row = i + 1;
+      if (d.title !== undefined) sheet.getRange(row, 4).setValue(d.title);
+      if (d.content !== undefined) sheet.getRange(row, 5).setValue(d.content);
+      if (d.tags !== undefined) sheet.getRange(row, 6).setValue(d.tags);
+      if (d.is_favorite !== undefined) sheet.getRange(row, 7).setValue(d.is_favorite === true);
+      sheet.getRange(row, 9).setValue(toISODate_());
+      
+      return { status: "success", message: "Saved result updated" };
+    }
+  }
+  
+  return { status: "error", message: "Saved result not found" };
+}
+
+function memberSavedResultsDelete(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sheet = ss.getSheetByName("Saved_Results");
+  if (!sheet) return { status: "error", message: "Saved results not found" };
+  
+  const data = sheet.getDataRange().getValues();
+  const resultId = String(d.id);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === resultId && String(data[i][1]) === userId) {
+      sheet.deleteRow(i + 1);
+      return { status: "success", message: "Saved result deleted" };
+    }
+  }
+  
+  return { status: "error", message: "Saved result not found" };
+}
+
+/* =========================
+   MEMBER SUBSCRIPTION
+========================= */
+function memberSubscriptionGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const userId = getUserIdByEmail_(email);
+  if (!userId) return { status: "error", message: "User not found" };
+  
+  const sub = getMemberSubscription_(userId);
+  if (!sub) {
+    return {
+      status: "success",
+      data: {
+        has_subscription: false,
+        message: "No active subscription"
+      }
+    };
+  }
+  
+  // Get plan details
+  let planDetails = null;
+  const plansSheet = ss.getSheetByName("Membership_Plans");
+  if (plansSheet) {
+    const pData = plansSheet.getDataRange().getValues();
+    for (let i = 1; i < pData.length; i++) {
+      if (String(pData[i][0]) === sub.planId) {
+        let features = [];
+        try { features = pData[i][6] ? JSON.parse(pData[i][6]) : []; } catch(e) {}
+        planDetails = {
+          id: pData[i][0],
+          name: pData[i][1],
+          description: pData[i][2],
+          credits_per_period: pData[i][5],
+          features: features
+        };
+        break;
+      }
+    }
+  }
+  
+  return {
+    status: "success",
+    data: {
+      has_subscription: true,
+      subscription_id: sub.id,
+      plan: planDetails,
+      status: sub.status,
+      credits_balance: sub.creditsBalance,
+      credits_used: sub.creditsUsed,
+      start_date: sub.startDate,
+      end_date: sub.endDate
+    }
+  };
+}
+
+/* =========================
+   MEMBER PROFILE
+========================= */
+function memberProfileGet(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const usersSheet = ss.getSheetByName("Users");
+  if (!usersSheet) return { status: "error", message: "User not found" };
+  
+  const data = usersSheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).toLowerCase() === email) {
+      return {
+        status: "success",
+        data: {
+          id: data[i][0],
+          email: data[i][1],
+          name: data[i][2],
+          phone: data[i][3],
+          created_at: data[i][6]
+        }
+      };
+    }
+  }
+  
+  return { status: "error", message: "User not found" };
+}
+
+function memberProfilePut(d) {
+  const email = String(d.email || "").trim().toLowerCase();
+  if (!email) return { status: "error", message: "Email required" };
+  
+  const usersSheet = ss.getSheetByName("Users");
+  if (!usersSheet) return { status: "error", message: "User not found" };
+  
+  const data = usersSheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).toLowerCase() === email) {
+      const row = i + 1;
+      if (d.name !== undefined) usersSheet.getRange(row, 3).setValue(d.name);
+      if (d.phone !== undefined) usersSheet.getRange(row, 4).setValue(d.phone);
+      if (d.password) usersSheet.getRange(row, 5).setValue(hashPassword_(d.password));
+      usersSheet.getRange(row, 8).setValue(toISODate_());
+      
+      return { status: "success", message: "Profile updated" };
+    }
+  }
+  
+  return { status: "error", message: "User not found" };
+}
