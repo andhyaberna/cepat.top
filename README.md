@@ -7,46 +7,86 @@ Folder ini adalah paket distribusi user yang sudah dipangkas dari file developme
 - File frontend runtime: HTML, CSS, `config.js`, `site.config.js`
 - File gateway runtime: `_worker.js`, `_headers`, `_redirects`, `wrangler.jsonc`
 - File backend deployable: `appscript.js`
-- Utilitas user: `setup.js`, `validate-config.js`
+- Utilitas user: `install.js`, `setup.js`, `validate-config.js`
+- Dokumentasi instalasi: `INSTALLER_STEP_BY_STEP.md`
 - Metadata paket: `manifest.json`, `package.json`, `LICENSE.txt`
 
 ## Cara Pakai
 
 1. Buka folder ini.
-2. Jalankan `node setup.js` untuk generate ulang `site.config.js` sesuai domain user.
-3. Buat Database Google Sheets dan GAS
-4. Edit `wrangler.jsonc` dan isi `APP_GAS_URL` dengan URL deploy Google Apps Script.
+1. Baca `INSTALLER_STEP_BY_STEP.md` jika ingin panduan instalasi paling detail untuk user baru.
+2. Jalankan `node install.js` untuk first-run setup lengkap.
+3. Review output di `.setup-output/` lalu import seed data ke Google Sheets.
 4. Jalankan `node validate-config.js`.
 5. Deploy ke Github dan Cloudflare Pages dari folder ini.
 6. Buka Google Sheets, lalu paste `appscript.js` ke Apps Script editor dan deploy sebagai Web App.
+
+## First Install Wizard
+
+Perintah utama:
+
+```bash
+node install.js
+```
+
+Panduan urutan instalasi yang lebih detail tersedia di `INSTALLER_STEP_BY_STEP.md`.
+
+Yang dilakukan wizard ini:
+
+- Deteksi environment lokal: OS, Node.js, npm, git, dan keberadaan `wrangler.jsonc`.
+- Install dependency npm bila `package.json` memang mendeklarasikan dependency.
+- Mengisi `site.config.js` dengan domain utama, base URL, allowed domains, dan suffix subdomain.
+- Mengisi `wrangler.jsonc` untuk `ALLOWED_ORIGINS`, `APP_GAS_URL`, `MOOTA_GAS_URL`, dan `MOOTA_TOKEN`.
+- Membuat `.env.local` dari template `.env.example`.
+- Membuat seed awal Google Sheets di `.setup-output/seed-data/`.
+- Membuat template `apps-script-properties.json`, `database.connection.json`, `default-app-config.json`, dan `INSTALL_SUMMARY.md`.
+
+Mode non-interaktif juga tersedia untuk otomasi:
+
+```bash
+node install.js --non-interactive
+```
+
+Environment variable yang didukung:
+
+- `INSTALLER_PRIMARY_DOMAIN`
+- `INSTALLER_EXTRA_DOMAINS`
+- `INSTALLER_APP_GAS_URL`
+- `INSTALLER_MOOTA_GAS_URL`
+- `INSTALLER_MOOTA_TOKEN`
+- `INSTALLER_ADMIN_API_TOKEN`
+- `INSTALLER_SPREADSHEET_ID`
+- `INSTALLER_SPREADSHEET_NAME`
+- `INSTALLER_SITE_NAME`
+- `INSTALLER_SITE_TAGLINE`
+- `INSTALLER_CONTACT_EMAIL`
+- `INSTALLER_WA_ADMIN`
+- `INSTALLER_ADMIN_EMAIL`
+- `INSTALLER_ADMIN_PASSWORD`
+- `INSTALLER_ADMIN_NAME`
 
 ## Affiliate Link Base URL
 
 - Frontend sekarang membentuk link affiliate absolut dari `SITE_CONFIG.APP_BASE_URL` dengan fallback ke origin aktif saat dibuka di domain yang diizinkan.
 - Nilai default `APP_BASE_URL` digenerate otomatis oleh `setup.js` dalam format `https://domainutama.com`.
-- Untuk environment production, staging, atau custom domain lain, pastikan `APP_BASE_URL`, `PRIMARY_DOMAIN`, dan `ALLOWED_DOMAINS` di [site.config.js](/d:/cepat.top/cepat.top/site.config.js) saling sesuai.
+- Untuk environment production, staging, atau custom domain lain, pastikan `APP_BASE_URL`, `PRIMARY_DOMAIN`, dan `ALLOWED_DOMAINS` di `site.config.js` saling sesuai.
 - Dashboard member area akan menormalisasi slug polos seperti `gpts-guerilla`, path relatif seperti `/p.html?s=gpts-guerilla`, dan URL penuh menjadi preview/copy link absolut yang siap dibuka.
 
 ## Checklist Setup User Baru
 
-1. Siapkan Google Sheets utama beserta sheet minimal: `Settings`, `Users`, `Orders`, `Access_Rules`, dan `Pages`.
-2. Buka `Extensions` -> `Apps Script`, lalu paste isi [appscript.js](/d:/kelasjagoan3/appscript.js) ke project Apps Script online.
-3. Deploy Apps Script sebagai `Web app`, lalu simpan URL `/exec` hasil deploy untuk dipakai di Worker.
-4. Buka `Project Settings` di Apps Script online, lalu isi `Script Properties` minimal berikut:
-   - `moota_token`: secret token Moota yang aktif
-   - `ik_private_key`: jika memakai ImageKit
-   - `ADMIN_API_TOKEN`: jika ingin memakai action diagnostic privileged dari admin area
-5. Jika masih ada property lama `moota_secret`, hapus agar tidak bentrok dengan `moota_token`.
-6. Edit `wrangler.jsonc`, lalu isi minimal:
-   - `APP_GAS_URL`: URL `/exec` Apps Script
-   - `MOOTA_GAS_URL`: URL `/exec` Apps Script untuk webhook Moota
-   - `MOOTA_TOKEN`: secret token Moota yang sama persis dengan `moota_token` di Apps Script
-7. Deploy Cloudflare Worker / Pages dari folder ini.
-8. Di dashboard Moota, isi:
+1. Jalankan `node install.js` sampai selesai.
+2. Siapkan Google Sheets utama beserta sheet minimal: `Settings`, `Users`, `Orders`, `Access_Rules`, dan `Pages`.
+3. Import file CSV dari `.setup-output/seed-data/` ke sheet dengan nama yang sesuai.
+4. Buka `Extensions` -> `Apps Script`, lalu paste isi `appscript.js` ke project Apps Script online.
+5. Isi `Script Properties` dari `.setup-output/apps-script-properties.json`.
+6. Deploy Apps Script sebagai `Web app`, lalu simpan URL `/exec` hasil deploy untuk dipakai di Worker.
+7. Jika masih ada property lama `moota_secret`, hapus agar tidak bentrok dengan `moota_token`.
+8. Review `.env.local`, `site.config.js`, dan `wrangler.jsonc`, lalu deploy Cloudflare Worker / Pages dari folder ini.
+9. Di dashboard Moota, isi:
    - `Webhook URL`: `https://domainanda.com/webhook/moota`
    - `Secret Token`: harus sama persis dengan `MOOTA_TOKEN` di Worker dan `moota_token` di Apps Script
-9. Buka admin area, isi branding, payment, dan integrasi lain yang dibutuhkan.
-10. Jalankan `Test Koneksi Moota` dan `Test Koneksi ImageKit` sebelum sistem dipakai live.
+10. Buka admin area, isi branding, payment, dan integrasi lain yang dibutuhkan.
+11. Jalankan `Test Koneksi Moota` dan `Test Koneksi ImageKit` sebelum sistem dipakai live.
 
 ## Users Sheet Schema
 
@@ -64,7 +104,8 @@ Folder ini adalah paket distribusi user yang sudah dipangkas dari file developme
 - Jalankan `npm run sync:installer` atau `npm run prepare:installer` jika ingin memaksa sinkronisasi satu kali.
 - Log detail perubahan ditulis ke `installer/.sync-meta/sync.log` dan output watcher background disimpan di `installer/.sync-meta/watcher-output.log`.
 - Format log sinkronisasi adalah `timestamp | add/modify/delete | path`, contoh: `2026-03-19T18:51:40.730Z | modify | appscript.js`.
-- Jika melakukan sinkronisasi manual, pastikan file runtime yang berubah ikut dicopy ke `installer/`, minimal: `README.md`, `appscript.js`, `_worker.js`, `wrangler.jsonc`, dan file admin/frontend terkait jika ada perubahan UI.
+- File sensitif seperti `.env.local` dan artefak `.setup-output/` otomatis tidak ikut tersinkron ke paket installer.
+- Jika melakukan sinkronisasi manual, pastikan file runtime yang berubah ikut dicopy ke `installer/`, minimal: `README.md`, `install.js`, `appscript.js`, `_worker.js`, `wrangler.jsonc`, dan file admin/frontend terkait jika ada perubahan UI.
 
 ## Branding Asset Fallback
 

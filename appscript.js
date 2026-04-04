@@ -1024,6 +1024,53 @@ function doPost(e) {
       case "get_admin_orders": return jsonRes(getAdminOrders(data));
       case "get_admin_users": return jsonRes(getAdminUsers(data));
 
+      // AI MEMBERSHIP PLATFORM ACTIONS (ADMIN)
+      case "admin_openai_settings_get": return jsonRes(adminOpenAISettingsGet(data));
+      case "admin_openai_settings_put": return jsonRes(adminOpenAISettingsPut(data));
+      case "admin_openai_settings_test": return jsonRes(adminOpenAISettingsTest(data));
+      case "admin_ai_products_get": return jsonRes(adminAiProductsGet(data));
+      case "admin_ai_products_post": return jsonRes(adminAiProductsPost(data));
+      case "admin_ai_products_detail_get": return jsonRes(adminAiProductsDetailGet(data));
+      case "admin_ai_products_put": return jsonRes(adminAiProductsPut(data));
+      case "admin_ai_products_delete": return jsonRes(adminAiProductsDelete(data));
+      case "admin_ai_product_templates_get": return jsonRes(adminAiProductTemplatesGet(data));
+      case "admin_ai_product_templates_post": return jsonRes(adminAiProductTemplatesPost(data));
+      case "admin_template_put": return jsonRes(adminTemplatePut(data));
+      case "admin_template_delete": return jsonRes(adminTemplateDelete(data));
+      case "admin_ai_product_fields_get": return jsonRes(adminAiProductFieldsGet(data));
+      case "admin_ai_product_fields_post": return jsonRes(adminAiProductFieldsPost(data));
+      case "admin_field_put": return jsonRes(adminFieldPut(data));
+      case "admin_field_delete": return jsonRes(adminFieldDelete(data));
+      case "admin_membership_plans_get": return jsonRes(adminMembershipPlansGet(data));
+      case "admin_membership_plans_post": return jsonRes(adminMembershipPlansPost(data));
+      case "admin_membership_plans_put": return jsonRes(adminMembershipPlansPut(data));
+      case "admin_membership_plans_delete": return jsonRes(adminMembershipPlansDelete(data));
+      case "admin_members_get": return jsonRes(adminMembersGet(data));
+      case "admin_members_detail_get": return jsonRes(adminMembersDetailGet(data));
+      case "admin_members_subscription_put": return jsonRes(adminMembersSubscriptionPut(data));
+      case "admin_members_credits_grant": return jsonRes(adminMembersCreditsGrant(data));
+      case "admin_members_credits_reset": return jsonRes(adminMembersCreditsReset(data));
+      case "admin_generation_histories_get": return jsonRes(adminGenerationHistoriesGet(data));
+      case "admin_dashboard_summary_get": return jsonRes(adminDashboardSummaryGet(data));
+      case "admin_content_get": return jsonRes(adminContentGet(data));
+      case "admin_content_put": return jsonRes(adminContentPut(data));
+      case "admin_seed_dummy_data": return jsonRes(adminSeedDummyData(data));
+
+      // AI MEMBERSHIP PLATFORM ACTIONS (MEMBER)
+      case "member_register": return jsonRes(memberRegister(data));
+      case "member_dashboard_get": return jsonRes(memberDashboardGet(data));
+      case "member_ai_products_get": return jsonRes(memberAiProductsGet(data));
+      case "member_ai_product_detail_get": return jsonRes(memberAiProductDetailGet(data));
+      case "member_ai_generate_post": return jsonRes(memberAiGeneratePost(data));
+      case "member_history_get": return jsonRes(memberHistoryGet(data));
+      case "member_history_detail_get": return jsonRes(memberHistoryDetailGet(data));
+      case "member_history_save_post": return jsonRes(memberHistorySavePost(data));
+      case "member_saved_results_put": return jsonRes(memberSavedResultsPut(data));
+      case "member_saved_results_delete": return jsonRes(memberSavedResultsDelete(data));
+      case "member_subscription_get": return jsonRes(memberSubscriptionGet(data));
+      case "member_profile_get": return jsonRes(memberProfileGet(data));
+      case "member_profile_put": return jsonRes(memberProfilePut(data));
+
       // DIAGNOSTIC & MONITORING ACTIONS
       case "get_email_logs":
       case "get_moota_logs":

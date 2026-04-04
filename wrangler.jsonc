@@ -16,8 +16,8 @@
   ],
   "vars": {
     "ALLOWED_ORIGINS": "https://cepat.top,https://www.cepat.top",
-    "APP_GAS_URL": "https://script.google.com/macros/s/AKfycbxvpwcjg4pwXiXFVrCZ2W_qtSaahMkbbowPqvNGPJKkhO4zpLFsP2MF8lkpMoZ37LHy/exec",
-    "MOOTA_GAS_URL": "https://script.google.com/macros/s/AKfycbxvpwcjg4pwXiXFVrCZ2W_qtSaahMkbbowPqvNGPJKkhO4zpLFsP2MF8lkpMoZ37LHy/exec",
+    "APP_GAS_URL": "https://script.google.com/macros/s/AKfycbwUj0ftallVzJW26MM_paUCqZ-0HK_25iu6SK_LB1gvQb64212tB9FVuGA-8wxXjRbf/exec",
+    "MOOTA_GAS_URL": "https://script.google.com/macros/s/AKfycbwUj0ftallVzJW26MM_paUCqZ-0HK_25iu6SK_LB1gvQb64212tB9FVuGA-8wxXjRbf/exec",
     "MOOTA_TOKEN": "REPLACE_ME"
   }
 }

@@ -20,9 +20,12 @@ const FOREGROUND_WATCH_MODE = process.argv.includes('--foreground-watch');
 
 const SOURCE_EXCLUDES = [
   '.git',
+  '.sync-meta',
+  '.wrangler',
   'installer',
   'node_modules',
   '.gitignore',
+  '.setup-output',
 ];
 
 function normalizeRel(relPath) {
@@ -63,6 +66,7 @@ function writeWatcherPid() {
 
 function isSourceExcluded(relPath) {
   const rel = normalizeRel(relPath);
+  if (/^\.env($|\.)/.test(rel) && rel !== '.env.example') return true;
   return SOURCE_EXCLUDES.some((item) => rel === item || rel.startsWith(item + '/'));
 }
 
