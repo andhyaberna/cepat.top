@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "cepattop",
+  "name": "cepattop2",
   "main": "_worker.js",
   "compatibility_date": "2025-09-27",
   "observability": {
